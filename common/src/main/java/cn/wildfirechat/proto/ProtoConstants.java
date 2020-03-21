@@ -87,6 +87,10 @@ public class ProtoConstants {
         int Modify_Group_Name = 0;
         int Modify_Group_Portrait = 1;
         int Modify_Group_Extra = 2;
+        int Modify_Group_Mute = 3;
+        int Modify_Group_JoinType = 4;
+        int Modify_Group_PrivateChat = 5;
+        int Modify_Group_Searchable = 6;
     }
 
     //ModifyGroupInfoRequest -> type
@@ -110,10 +114,19 @@ public class ProtoConstants {
     }
 
     //Channel -> status
-    public interface ChannelStatus {
-        int Channel_Status_Public = 0;
-        int Channel_Status_Private = 1;
-        int Channel_Status_Destoryed = 2;
+    //第0位表示是否允许查看用户所有信息，还是只允许看用户id，用户名称，用户昵称和用户头像
+    //第1位表示是否允许查看非订阅用户信息
+    //第2位表示是否允许主动添加用户订阅关系
+    //第3位表示是否允许给非订阅用户发送消息
+    //第4位表示是否私有
+    //第6位表示是否删除
+    public interface ChannelState {
+        int Channel_State_Mask_FullInfo = 0x01;
+        int Channel_State_Mask_Unsubscribed_User_Access = 0x02;
+        int Channel_State_Mask_Active_Subscribe = 0x04;
+        int Channel_State_Mask_Message_Unsubscribed = 0x08;
+        int Channel_State_Mask_Private = 0x10;
+        int Channel_State_Mask_Deleted = 0x40;
     }
 
 
@@ -121,10 +134,32 @@ public class ProtoConstants {
         int UserType_Normal = 0;
         int UserType_Robot = 1;
         int UserType_Device = 2;
+        int UserType_Admin = 3;
+        int UserType_Super_Admin = 100;
     }
 
 
+    public interface SystemSettingType {
+        int Group_Max_Member_Count = 1;
+    }
 
+    public interface SearchUserType {
+        int SearchUserType_General = 0;
+        int SearchUserType_Name_Mobile = 1;
+        int SearchUserType_Name = 2;
+        int SearchUserType_Mobile = 3;
+    }
+
+    public interface UserStatus {
+        int Normal = 0;
+        int Muted = 1;
+        int Forbidden = 2;
+    }
+
+    public interface BlacklistStrategy {
+        int Message_Reject = 0;
+        int Message_Ignore = 1;
+    }
 
 
 
@@ -137,5 +172,12 @@ public class ProtoConstants {
     public static final int MESSAGE_CONTENT_TYPE_CHANGE_GROUP_NAME = 110;
     public static final int MESSAGE_CONTENT_TYPE_MODIFY_GROUP_ALIAS = 111;
     public static final int MESSAGE_CONTENT_TYPE_CHANGE_GROUP_PORTRAIT = 112;
+
+    public static final int MESSAGE_CONTENT_TYPE_CHANGE_MUTE = 113;
+    public static final int MESSAGE_CONTENT_TYPE_CHANGE_JOINTYPE = 114;
+    public static final int MESSAGE_CONTENT_TYPE_CHANGE_PRIVATECHAT = 115;
+    public static final int MESSAGE_CONTENT_TYPE_CHANGE_SEARCHABLE = 116;
+
+    public static final int MESSAGE_CONTENT_TYPE_SET_MANAGER = 117;
 }
 

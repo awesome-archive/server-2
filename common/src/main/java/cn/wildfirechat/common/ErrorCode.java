@@ -36,12 +36,13 @@ public enum ErrorCode {
     //user error
     ERROR_CODE_FRIEND_ALREADY_REQUEST(16, "already send request"),
     ERROR_CODE_FRIEND_REQUEST_BLOCKED(18, "friend request blocked"),
-    ERROR_CODE_FRIEND_REQUEST_OVERTIME(19, "friend request overtime"),
+    ERROR_CODE_FRIEND_REQUEST_EXPIRED(19, "friend request expired"),
 
     ERROR_CODE_NOT_IN_CHATROOM(20, "not in chatroom"),
 
     ERROR_CODE_NOT_IN_CHANNEL(21, "not in channel"),
 
+    ERROR_CODE_GROUP_MUTED(241, "group is muted"),
     ERROR_CODE_SENSITIVE_MATCHED(242, "sensitive matched"),
     ERROR_CODE_SIGN_EXPIRED(243, "sign expired"),
     ERROR_CODE_AUTH_FAILURE(244, "auth failure"),

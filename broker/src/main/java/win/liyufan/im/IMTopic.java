@@ -10,10 +10,12 @@ package win.liyufan.im;
 
 public interface IMTopic {
 	String SendMessageTopic = "MS";
+    String MultiCastMessageTopic = "MMC";
     String RecallMessageTopic = "MR";
 	String PullMessageTopic = "MP";
 	String NotifyMessageTopic = "MN";
     String NotifyRecallMessageTopic = "RMN";
+    String BroadcastMessageTopic = "MBC";
 
     String GetUserSettingTopic = "UG";
     String PutUserSettingTopic = "UP";
@@ -29,7 +31,7 @@ public interface IMTopic {
     String GetGroupInfoTopic = "GPGI";
     String GetGroupMemberTopic = "GPGM";
     String TransferGroupTopic = "GTG";
-
+    String SetGroupManagerTopic = "GSM";
 
     String GetUserInfoTopic = "UPUI";
     String ModifyMyInfoTopic = "MMI";
@@ -69,6 +71,7 @@ public interface IMTopic {
     String ChannelPullTopic = "CHP";
 
     String GetTokenTopic = "GETTOKEN";
+    String DestroyUserTopic = "DESTROYUSER";
 
     String LoadRemoteMessagesTopic = "LRM";
 }

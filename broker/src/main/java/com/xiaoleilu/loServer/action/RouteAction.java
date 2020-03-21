@@ -35,12 +35,15 @@ import java.util.concurrent.Executor;
 @HttpMethod("POST")
 public class RouteAction extends Action {
     private static final Logger LOG = LoggerFactory.getLogger(RouteAction.class);
+
     @Override
     public boolean action(Request request, Response response) {
         if (request.getNettyRequest() instanceof FullHttpRequest) {
 
             response.setContentType("application/octet-stream");
-            FullHttpRequest fullHttpRequest = (FullHttpRequest)request.getNettyRequest();
+            response.setHeader("Access-Control-Allow-Origin", "*");
+
+            FullHttpRequest fullHttpRequest = (FullHttpRequest) request.getNettyRequest();
             boolean b = false;
             if ("web".equalsIgnoreCase(fullHttpRequest.headers().get("p"))) {
                 b = true;
@@ -54,7 +57,7 @@ public class RouteAction extends Action {
             try {
                 bytes = Base64.getDecoder().decode(str);
             } catch (IllegalArgumentException e) {
-                sendResponse(response, ErrorCode.ERROR_CODE_SECRECT_KEY_MISMATCH, null, base64Response);
+                sendResponse(response, ErrorCode.ERROR_CODE_INVALID_DATA, null, base64Response);
                 return true;
             }
 
@@ -62,7 +65,7 @@ public class RouteAction extends Action {
             byte[] cbytes = Base64.getDecoder().decode(cid);
             cbytes = AES.AESDecrypt(cbytes, "", true);
             if (cbytes == null) {
-                sendResponse(response, ErrorCode.ERROR_CODE_SECRECT_KEY_MISMATCH, null, base64Response);
+                sendResponse(response, ErrorCode.ERROR_CODE_INVALID_DATA, null, base64Response);
                 return true;
             }
             cid = new String(cbytes);
@@ -71,7 +74,7 @@ public class RouteAction extends Action {
             byte[] ubytes = Base64.getDecoder().decode(uid);
             ubytes = AES.AESDecrypt(ubytes, "", true);
             if (ubytes == null) {
-                sendResponse(response, ErrorCode.ERROR_CODE_SECRECT_KEY_MISMATCH, null, base64Response);
+                sendResponse(response, ErrorCode.ERROR_CODE_INVALID_DATA, null, base64Response);
                 return true;
             }
             uid = new String(ubytes);
@@ -79,7 +82,7 @@ public class RouteAction extends Action {
 
             MemorySessionStore.Session session = sessionsStore.sessionForClientAndUser(uid, cid);
             if (session == null) {
-                ErrorCode errorCode = sessionsStore.createNewSession(uid, cid, true, true);
+                ErrorCode errorCode = sessionsStore.loadActiveSession(uid, cid);
                 if (errorCode != ErrorCode.ERROR_CODE_SUCCESS) {
                     sendResponse(response, errorCode, null, base64Response);
                     return true;
@@ -144,10 +147,14 @@ public class RouteAction extends Action {
 
     private void sendResponse(Response response, ErrorCode errorCode, byte[] contents, boolean base64Response) {
         response.setStatus(HttpResponseStatus.OK);
-        if(contents == null) {
+        if (contents == null) {
             ByteBuf ackPayload = Unpooled.buffer();
             ackPayload.ensureWritable(1).writeByte(errorCode.getCode());
-            response.setContent(ackPayload);
+            contents = ackPayload.array();
+        }
+        if (base64Response) {
+            byte[] base64Data = Base64.getEncoder().encode(contents);
+            response.setContent(base64Data);
         } else {
             response.setContent(contents);
         }

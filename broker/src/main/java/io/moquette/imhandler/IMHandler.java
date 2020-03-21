@@ -8,6 +8,7 @@
 
 package io.moquette.imhandler;
 
+import cn.wildfirechat.proto.ProtoConstants;
 import cn.wildfirechat.proto.WFCMessage;
 import cn.wildfirechat.server.ThreadPoolExecutorWrapper;
 import com.google.gson.Gson;
@@ -31,6 +32,10 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
@@ -80,16 +85,11 @@ abstract public class IMHandler<T> {
                 }
             }
 
-
-            for (Method method : getClass().getDeclaredMethods()
-                 ) {
-
-                if (method.getName() == actionName && method.getParameterCount() == 6) {
-                    dataCls = method.getParameterTypes()[4];
-                    break;
-                }
-            }
-
+            Type t = getClass().getGenericSuperclass();
+            ParameterizedType p = (ParameterizedType) t ;
+            Class<T> c = (Class<T>) p.getActualTypeArguments()[0];
+            dataCls = c;
+            
             if (dataCls.getSuperclass().equals(GeneratedMessage.class)) {
                 parseDataMethod = dataCls.getMethod("parseFrom", byte[].class);
             } else if (dataCls.isPrimitive()) {
@@ -232,13 +232,37 @@ abstract public class IMHandler<T> {
     public void afterAction(String clientID, String fromUser, String topic, Qos1PublishHandler.IMCallback callback) {
 
     }
+    protected long publish(String username, String clientID, WFCMessage.Message message) {
+        Set<String> notifyReceivers = new LinkedHashSet<>();
 
-    protected long saveAndPublish(String username, String clientID, WFCMessage.Message message) {
+        WFCMessage.Message.Builder messageBuilder = message.toBuilder();
+        int pullType = m_messagesStore.getNotifyReceivers(username, messageBuilder, notifyReceivers, false);
+        mServer.getImBusinessScheduler().execute(() -> this.publisher.publish2Receivers(messageBuilder.build(), notifyReceivers, clientID, pullType));
+        return notifyReceivers.size();
+    }
+
+    protected long saveAndPublish(String username, String clientID, WFCMessage.Message message, boolean ignoreMsg) {
         Set<String> notifyReceivers = new LinkedHashSet<>();
 
         message = m_messagesStore.storeMessage(username, clientID, message);
-        int pullType = m_messagesStore.getNotifyReceivers(username, message, notifyReceivers);
-        this.publisher.publish2Receivers(message, notifyReceivers, clientID, pullType);
-        return message.getMessageId();
+        WFCMessage.Message.Builder messageBuilder = message.toBuilder();
+        int pullType = m_messagesStore.getNotifyReceivers(username, messageBuilder, notifyReceivers, ignoreMsg);
+        mServer.getImBusinessScheduler().execute(() -> this.publisher.publish2Receivers(messageBuilder.build(), notifyReceivers, clientID, pullType));
+        return notifyReceivers.size();
+    }
+
+    protected long saveAndBroadcast(String username, String clientID, WFCMessage.Message message) {
+        Set<String> notifyReceivers = m_messagesStore.getAllEnds();
+        WFCMessage.Message updatedMessage = m_messagesStore.storeMessage(username, clientID, message);
+        mServer.getImBusinessScheduler().execute(() -> publisher.publish2Receivers(updatedMessage, notifyReceivers, clientID, ProtoConstants.PullType.Pull_Normal));
+        return notifyReceivers.size();
+    }
+
+    protected long saveAndMulticast(String username, String clientID, WFCMessage.Message message, Collection<String> targets) {
+        Set<String> notifyReceivers = new HashSet<>();
+        notifyReceivers.addAll(targets);
+        WFCMessage.Message updatedMessage = m_messagesStore.storeMessage(username, clientID, message);
+        mServer.getImBusinessScheduler().execute(() -> publisher.publish2Receivers(updatedMessage, notifyReceivers, clientID, ProtoConstants.PullType.Pull_Normal));
+        return notifyReceivers.size();
     }
 }
