@@ -8,31 +8,50 @@
 
 package io.moquette.imhandler;
 
+import cn.wildfirechat.proto.ProtoConstants;
 import cn.wildfirechat.proto.WFCMessage;
 import cn.wildfirechat.pojos.GroupNotificationBinaryContent;
 import io.moquette.spi.impl.Qos1PublishHandler;
 import io.netty.buffer.ByteBuf;
 import cn.wildfirechat.common.ErrorCode;
 
+import java.util.Set;
+
 import static win.liyufan.im.IMTopic.QuitGroupTopic;
 
 @Handler(value = QuitGroupTopic)
 public class QuitGroupHandler extends GroupHandler<WFCMessage.QuitGroupRequest> {
     @Override
-    public ErrorCode action(ByteBuf ackPayload, String clientID, String fromUser, boolean isAdmin, WFCMessage.QuitGroupRequest request, Qos1PublishHandler.IMCallback callback) {
-        ErrorCode errorCode = ErrorCode.ERROR_CODE_SUCCESS;
-        WFCMessage.GroupInfo groupInfo = m_messagesStore.getGroupInfo(request.getGroupId());
-        if (groupInfo == null) {
-            errorCode = m_messagesStore.quitGroup(fromUser, request.getGroupId());
-        } else {
-            //send notify message first, then quit group
+    public ErrorCode action(ByteBuf ackPayload, String clientID, String fromUser, ProtoConstants.RequestSourceType requestSourceType, WFCMessage.QuitGroupRequest request, Qos1PublishHandler.IMCallback callback) {
+        boolean isAdmin = requestSourceType == ProtoConstants.RequestSourceType.Request_From_Admin;
+        if(request.hasNotifyContent() && request.getNotifyContent().getType() > 0 && requestSourceType == ProtoConstants.RequestSourceType.Request_From_User && !m_messagesStore.isAllowClientCustomGroupNotification()) {
+            return ErrorCode.ERROR_CODE_NOT_RIGHT;
+        }
+        if(request.hasNotifyContent() && request.getNotifyContent().getType() > 0 && requestSourceType == ProtoConstants.RequestSourceType.Request_From_Robot && !m_messagesStore.isAllowRobotCustomGroupNotification()) {
+            return ErrorCode.ERROR_CODE_NOT_RIGHT;
+        }
+
+        if(requestSourceType == ProtoConstants.RequestSourceType.Request_From_User) {
+            int forbiddenClientOperation = m_messagesStore.getGroupForbiddenClientOperation();
+            if((forbiddenClientOperation & ProtoConstants.ForbiddenClientGroupOperationMask.Forbidden_Quit_Group) > 0) {
+                return ErrorCode.ERROR_CODE_NOT_RIGHT;
+            }
+        }
+
+        ErrorCode errorCode = m_messagesStore.quitGroup(fromUser, request.getGroupId(), isAdmin);
+        if (errorCode == ErrorCode.ERROR_CODE_SUCCESS) {
             if (request.hasNotifyContent() && request.getNotifyContent().getType() > 0) {
-                sendGroupNotification(fromUser, groupInfo.getTargetId(), request.getToLineList(), request.getNotifyContent());
+                sendGroupNotification(fromUser, request.getGroupId(), request.getToLineList(), request.getNotifyContent());
             } else {
-                WFCMessage.MessageContent content = new GroupNotificationBinaryContent(request.getGroupId(), fromUser, null, "").getQuitGroupNotifyContent();
+                WFCMessage.MessageContent content = new GroupNotificationBinaryContent(request.getGroupId(), fromUser, request.getKeepMsg()>0?"1":"0", "").getQuitGroupNotifyContent();
                 sendGroupNotification(fromUser, request.getGroupId(), request.getToLineList(), content);
             }
-            errorCode = m_messagesStore.quitGroup(fromUser, request.getGroupId());
+
+            if((m_messagesStore.getVisibleQuitKickoffNotification() & 0x01) > 0) {
+                Set<String> toUsers = m_messagesStore.getGroupManagers(request.getGroupId(), true);
+                WFCMessage.MessageContent content = new GroupNotificationBinaryContent(request.getGroupId(), fromUser, request.getKeepMsg()>0?"1":"0", "").getQuitVisibleGroupNotifyContent();
+                sendGroupNotification(fromUser, request.getGroupId(), request.getToLineList(), content, toUsers);
+            }
         }
         return errorCode;
     }

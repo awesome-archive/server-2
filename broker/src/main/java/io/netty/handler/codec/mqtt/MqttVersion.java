@@ -5,7 +5,7 @@
  * version 2.0 (the "License"); you may not use this file except in compliance
  * with the License. You may obtain a copy of the License at:
  *
- *   http://www.apache.org/licenses/LICENSE-2.0
+ *   https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
@@ -25,7 +25,9 @@ import io.netty.util.internal.ObjectUtil;
 public enum MqttVersion {
     MQTT_3_1("MQIsdp", (byte) 3),
     MQTT_3_1_1("MQTT", (byte) 4),
-    Wildfire_1("MQTT", (byte) 5);
+    MQTT_5("MQTT", (byte) 5),
+    Wildfire_2("MQTT", (byte) 6),
+    Wildfire_Future("MQTT", (byte) 7);
 
     private final String name;
     private final byte level;
@@ -48,23 +50,39 @@ public enum MqttVersion {
     }
 
     public static MqttVersion fromProtocolNameAndLevel(String protocolName, byte protocolLevel) {
-        for (MqttVersion mv : values()) {
-            if (mv.name.equals(protocolName)) {
-                if (mv.level == protocolLevel) {
-                    return mv;
-                } else {
-                    continue;
-                }
-            }
+        MqttVersion mv = null;
+        switch (protocolLevel) {
+        case 3:
+            mv = MQTT_3_1;
+            break;
+        case 4:
+            mv = MQTT_3_1_1;
+            break;
+        case 5:
+            mv = MQTT_5;
+            break;
+        case 6:
+            mv = Wildfire_2;
+            break;
+        case 7:
+            mv = Wildfire_Future;
+            break;
+        default:
+            mv = Wildfire_Future;
+            break;
         }
-        throw new MqttUnacceptableProtocolVersionException(protocolName + "is unknown protocol name");
-    }
 
+        return mv;
+    }
+    
     public static MqttVersion fromProtocolLevel(int protocolLevel) {
         for (MqttVersion mv : values()) {
             if (mv.level == (byte )protocolLevel) {
                 return mv;
             }
+        }
+        if(protocolLevel > Wildfire_Future.level) {
+            return Wildfire_Future;
         }
         throw new MqttUnacceptableProtocolVersionException(protocolLevel + "is unknown protocol level");
     }

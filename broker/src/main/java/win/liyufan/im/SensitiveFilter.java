@@ -1,9 +1,13 @@
 package win.liyufan.im;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class SensitiveFilter {
+    private static final Logger LOG = LoggerFactory.getLogger(SensitiveFilter.class);
     public enum MatchType {
         MIN_MATCH("最小匹配规则"),MAX_MATCH("最大匹配规则");
 
@@ -17,33 +21,6 @@ public class SensitiveFilter {
 
     private static final String END_FLAG="end";
 
-    public static void main(String[] args) {
-        Set<String> sensitiveWords=new HashSet<>();
-        sensitiveWords.add("你是傻逼");
-        sensitiveWords.add("你是傻逼啊");
-        sensitiveWords.add("你是坏蛋");
-        sensitiveWords.add("你个大笨蛋");
-        sensitiveWords.add("我去年买了个表");
-        sensitiveWords.add("shit");
-
-        SensitiveFilter textFilter=new SensitiveFilter(sensitiveWords);
-        String text="你你你你是傻逼啊你，说你呢，你个大笨蛋。";
-        System.out.println(textFilter.getSensitiveWords(text,MatchType.MAX_MATCH));
-        for (int i = 0; i < 100; i++) {
-            new Thread(new Runnable() {
-                @Override
-                public void run() {
-                    System.out.println(textFilter.getSensitiveWords(text,MatchType.MAX_MATCH));
-                }
-            }).start();
-        }
-        try {
-            Thread.sleep(1000 * 100);
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
-    }
-
     public boolean isContainSensitiveWord(String text){
         Set<String> sensitiveWords = getSensitiveWords(text, MatchType.MIN_MATCH);
         if(sensitiveWords!=null&&sensitiveWords.size()>0){
@@ -52,22 +29,54 @@ public class SensitiveFilter {
         return false;
     }
 
+    private int getUrlLength(String text, int i) {
+        boolean startUrl = false;
+        if(text.charAt(i) == 'h') {
+            if(text.length() > i + 6 && text.substring(i, i+7).equals("http://")) {
+                startUrl = true;
+            } else if(text.length() > i + 7 && text.substring(i, i+8).equals("https://")) {
+                startUrl = true;
+            }
+        }
+
+        if(startUrl) {
+            for (int j = i+1; j < text.length(); j++) {
+                char ch = text.charAt(j);
+                if(ch == ' ' || ch == '\n' || ch == '\r' || ch == '\t') {
+                    return j-i;
+                }
+            }
+            return text.length() - i - 1;
+        }
+        return 0;
+    }
+
     public Set<String> getSensitiveWords(String text,MatchType matchType){
         Set<String> sensitiveWords=new HashSet<>();
         if(text==null||text.trim().length()==0){
             return sensitiveWords;
         }
 
+        String originalText = text;
+        text = text.toLowerCase();
         for(int i=0;i<text.length();i++){
+            int urlLength = getUrlLength(text, i);
+            if(urlLength > 0) {
+                i = i + urlLength;
+                continue;
+            }
             int sensitiveWordLength = getSensitiveWordLength(text, i, matchType);
             if(sensitiveWordLength>0){
-                String sensitiveWord = text.substring(i, i + sensitiveWordLength);
+                String sensitiveWord = originalText.substring(i, i + sensitiveWordLength);
                 sensitiveWords.add(sensitiveWord);
                 if(matchType==MatchType.MIN_MATCH){
                     break;
                 }
                 i=i+sensitiveWordLength-1;
             }
+        }
+        if(!sensitiveWords.isEmpty()) {
+            LOG.info("Text {} matched sensitive word {}", originalText, sensitiveWords);
         }
         return sensitiveWords;
     }
@@ -119,7 +128,7 @@ public class SensitiveFilter {
         Iterator<String> iterator = sensitiveWords.iterator();
         while (iterator.hasNext()){
             currentWord=iterator.next();
-            if(currentWord==null||currentWord.trim().length()<2){  //敏感词长度必须大于等于2
+            if(currentWord==null||currentWord.trim().length()<1){  //敏感词长度必须大于等于1
                 continue;
             }
             currentMap=sensitiveWordsMap;
@@ -142,5 +151,29 @@ public class SensitiveFilter {
         }
     }
 
+    public static void main(String[] args) {
+        Set<String> words = new HashSet<>();
+        words.add("sb");
+        words.add("xx");
+        SensitiveFilter sensitiveFilter = new SensitiveFilter(words);
+        String text1 = "u sb a";
+        Set<String> ss = sensitiveFilter.getSensitiveWords(text1, MatchType.MIN_MATCH);
+        System.out.println(ss.size());
 
+        text1 = "u xx";
+        ss = sensitiveFilter.getSensitiveWords(text1, MatchType.MIN_MATCH);
+        System.out.println(ss.size());
+
+        text1 = "a  url is https://sdsbhe.com here";
+        ss = sensitiveFilter.getSensitiveWords(text1, MatchType.MIN_MATCH);
+        System.out.println(ss.size());
+
+        text1 = "a  url is https://sdsbhe.com";
+        ss = sensitiveFilter.getSensitiveWords(text1, MatchType.MIN_MATCH);
+        System.out.println(ss.size());
+
+        text1 = "a  url is https://sdsbhe.com\nsb";
+        ss = sensitiveFilter.getSensitiveWords(text1, MatchType.MIN_MATCH);
+        System.out.println(ss.size());
+    }
 }

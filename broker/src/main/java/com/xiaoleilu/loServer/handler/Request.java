@@ -3,6 +3,7 @@ package com.xiaoleilu.loServer.handler;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -10,15 +11,13 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 
-import com.xiaoleilu.hutool.http.HttpUtil;
-import com.xiaoleilu.hutool.lang.Conver;
-import com.xiaoleilu.hutool.log.Log;
-import com.xiaoleilu.hutool.log.StaticLog;
-import com.xiaoleilu.hutool.util.CharsetUtil;
-import com.xiaoleilu.hutool.util.DateUtil;
-import com.xiaoleilu.hutool.util.StrUtil;
-import com.xiaoleilu.hutool.util.URLUtil;
-
+import cn.hutool.core.convert.Convert;
+import cn.hutool.core.date.DateUtil;
+import cn.hutool.core.net.NetUtil;
+import cn.hutool.core.util.CharsetUtil;
+import cn.hutool.core.util.StrUtil;
+import cn.hutool.core.util.URLUtil;
+import io.moquette.spi.impl.Utils;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.http.FullHttpRequest;
 import io.netty.handler.codec.http.HttpHeaderNames;
@@ -62,6 +61,7 @@ public class Request {
 
 	private String path;
 	private String ip;
+	private String body;
 	private Map<String, String> headers = new HashMap<String, String>();
 	private Map<String, Object> params = new HashMap<String, Object>();
 	private Map<String, Cookie> cookies = new HashMap<String, Cookie>();
@@ -81,21 +81,29 @@ public class Request {
 
 		// request URI parameters
 		this.putParams(new QueryStringDecoder(uri));
-		if(nettyRequest.method() != HttpMethod.GET){
-			HttpPostRequestDecoder decoder = null;
-			try {
-				decoder = new HttpPostRequestDecoder(HTTP_DATA_FACTORY, nettyRequest);
-				this.putParams(decoder);
-			} finally {
-				if(null != decoder){
-					decoder.destroy();
-					decoder = null;
-				}
-			}
-		}
 
 		// IP
 		this.putIp(ctx);
+
+		// 为操作日志保留请求体快照（仅admin/robot/channel的写接口）。
+		// 必须在构建时捕获，异步响应时原始content可能已被释放
+		if (this.path != null
+			&& (this.path.startsWith("/admin") || this.path.startsWith("/robot") || this.path.startsWith("/channel"))
+			&& !HttpMethod.GET.equals(nettyRequest.method())) {
+			byte[] bytes = Utils.readBytesAndRewind(nettyRequest.content());
+			if (bytes != null && bytes.length > 0) {
+				this.body = new String(bytes, StandardCharsets.UTF_8);
+			}
+		}
+	}
+
+	/**
+	 * 获得请求体快照（仅admin/robot/channel的写接口在构建时捕获，其余为null）
+	 *
+	 * @return 请求体字符串
+	 */
+	public String getBody() {
+		return body;
 	}
 
 	/**
@@ -273,7 +281,7 @@ public class Request {
 	 * @return 获得Integer类型请求参数
 	 */
 	public Integer getIntParam(String name, Integer defaultValue) {
-		return Conver.toInt(getParam(name), defaultValue);
+		return Convert.toInt(getParam(name), defaultValue);
 	}
 
 	/**
@@ -282,7 +290,7 @@ public class Request {
 	 * @return 获得long类型请求参数
 	 */
 	public Long getLongParam(String name, Long defaultValue) {
-		return Conver.toLong(getParam(name), defaultValue);
+		return Convert.toLong(getParam(name), defaultValue);
 	}
 
 	/**
@@ -291,7 +299,7 @@ public class Request {
 	 * @return 获得Double类型请求参数
 	 */
 	public Double getDoubleParam(String name, Double defaultValue) {
-		return Conver.toDouble(getParam(name), defaultValue);
+		return Convert.toDouble(getParam(name), defaultValue);
 	}
 
 	/**
@@ -300,7 +308,7 @@ public class Request {
 	 * @return 获得Float类型请求参数
 	 */
 	public Float getFloatParam(String name, Float defaultValue) {
-		return Conver.toFloat(getParam(name), defaultValue);
+		return Convert.toFloat(getParam(name), defaultValue);
 	}
 
 	/**
@@ -309,7 +317,7 @@ public class Request {
 	 * @return 获得Boolean类型请求参数
 	 */
 	public Boolean getBoolParam(String name, Boolean defaultValue) {
-		return Conver.toBool(getParam(name), defaultValue);
+		return Convert.toBool(getParam(name), defaultValue);
 	}
 
 	/**
@@ -489,7 +497,7 @@ public class Request {
 	protected void putIp(ChannelHandlerContext ctx) {
 		String ip = getHeader("X-Forwarded-For");
 		if (StrUtil.isNotBlank(ip)) {
-			ip = HttpUtil.getMultistageReverseProxyIp(ip);
+			ip = NetUtil.getMultistageReverseProxyIp(ip);
 		} else {
 			final InetSocketAddress insocket = (InetSocketAddress) ctx.channel().remoteAddress();
 			ip = insocket.getAddress().getHostAddress();

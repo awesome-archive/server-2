@@ -9,7 +9,7 @@
 		<dependency>
 			<groupId>com.google.code.gson</groupId>
 			<artifactId>gson</artifactId>
-			<version>2.8.2</version>
+			<version>2.8.9</version>
 		</dependency>
 
 		<dependency>
@@ -21,14 +21,13 @@
 		<dependency>
 			<groupId>org.apache.httpcomponents</groupId>
 			<artifactId>httpclient</artifactId>
-			<version>4.5.3</version>
+			<version>4.5.13</version>
 		</dependency>
 
 		<dependency>
 			<groupId>commons-codec</groupId>
 			<artifactId>commons-codec</artifactId>
-			<version>1.11</version>
-			<scope>compile</scope>
+			<version>1.15</version>
 		</dependency>
 
 		<dependency>
@@ -38,19 +37,25 @@
 		</dependency>
 
 		<dependency>
+            <groupId>com.googlecode.json-simple</groupId>
+            <artifactId>json-simple</artifactId>
+            <version>1.1.1</version>
+        </dependency>
+
+		<dependency>
 			<groupId>cn.wildfirechat</groupId>
 			<artifactId>sdk</artifactId>
-			<version>0.20</version>
+			<version>1.2.2</version>
 			<scope>system</scope>
-			<systemPath>${project.basedir}/src/lib/sdk-0.20.jar</systemPath>
+			<systemPath>${project.basedir}/src/lib/sdk-1.1.9.jar</systemPath>
 		</dependency>
 
 		<dependency>
 			<groupId>cn.wildfirechat</groupId>
 			<artifactId>common</artifactId>
-			<version>0.20</version>
+			<version>1.2.2</version>
 			<scope>system</scope>
-			<systemPath>${project.basedir}/src/lib/common-0.20.jar</systemPath>
+			<systemPath>${project.basedir}/src/lib/common-1.1.9.jar</systemPath>
 		</dependency>
 	</dependencies>
 

@@ -8,18 +8,23 @@
 
 package io.moquette.imhandler;
 
+import cn.wildfirechat.proto.ProtoConstants;
 import cn.wildfirechat.proto.WFCMessage;
 import io.moquette.spi.impl.Qos1PublishHandler;
 import io.netty.buffer.ByteBuf;
 import cn.wildfirechat.common.ErrorCode;
 import win.liyufan.im.IMTopic;
 
+import static win.liyufan.im.UserSettingScope.kUserSettingScope_Conversation_User_Setting;
+
 @Handler(IMTopic.PutUserSettingTopic)
 public class PutUserSettingHandler extends IMHandler<WFCMessage.ModifyUserSettingReq> {
     @Override
-    public ErrorCode action(ByteBuf ackPayload, String clientID, String fromUser, boolean isAdmin, WFCMessage.ModifyUserSettingReq request, Qos1PublishHandler.IMCallback callback) {
-            long timestamp = m_messagesStore.updateUserSettings(fromUser, request);
-            publisher.publishNotification(IMTopic.NotifyUserSettingTopic, fromUser, timestamp);
+    public ErrorCode action(ByteBuf ackPayload, String clientID, String fromUser, ProtoConstants.RequestSourceType requestSourceType, WFCMessage.ModifyUserSettingReq request, Qos1PublishHandler.IMCallback callback) {
+            if (request.getScope() == kUserSettingScope_Conversation_User_Setting && requestSourceType != ProtoConstants.RequestSourceType.Request_From_Robot) {
+                return ErrorCode.ERROR_CODE_NOT_RIGHT;
+            }
+            m_messagesStore.updateUserSettings(fromUser, request, clientID);
             return ErrorCode.ERROR_CODE_SUCCESS;
     }
 }

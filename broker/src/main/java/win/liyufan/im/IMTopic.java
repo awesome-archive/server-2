@@ -10,10 +10,16 @@ package win.liyufan.im;
 
 public interface IMTopic {
 	String SendMessageTopic = "MS";
+    String RobotReplyMessageTopic = "RRM";
+    String MultiCastMessageTopic = "MMC";
     String RecallMessageTopic = "MR";
+    String RecallMultiCastMessageTopic = "MRMC";
 	String PullMessageTopic = "MP";
 	String NotifyMessageTopic = "MN";
     String NotifyRecallMessageTopic = "RMN";
+    String NotifyOffline = "ROFL";
+
+    String BroadcastMessageTopic = "MBC";
 
     String GetUserSettingTopic = "UG";
     String PutUserSettingTopic = "UP";
@@ -26,13 +32,18 @@ public interface IMTopic {
 	String DismissGroupTopic = "GD";
 	String ModifyGroupInfoTopic = "GMI";
     String ModifyGroupAliasTopic = "GMA";
+    String ModifyGroupMemberAliasTopic = "GMMA";
+    String ModifyGroupMemberExtraTopic = "GMME";
     String GetGroupInfoTopic = "GPGI";
     String GetGroupMemberTopic = "GPGM";
     String TransferGroupTopic = "GTG";
-
+    String SetGroupManagerTopic = "GSM";
+    String GetMyGroupsTopic = "GMGS";
+    String GetCommonGroupsTopic = "GCGS";
 
     String GetUserInfoTopic = "UPUI";
     String ModifyMyInfoTopic = "MMI";
+    String NotifyUserInfoTopic = "UIN";
 
 	String GetQiniuUploadTokenTopic = "GQNUT";
 
@@ -41,6 +52,7 @@ public interface IMTopic {
     String FriendRequestPullTopic = "FRP";
     String NotifyFriendRequestTopic = "FRN";
     String RriendRequestUnreadSyncTopic = "FRUS";
+    String SetFriendExtraTopic = "FES";
 
     String DeleteFriendTopic = "FDL";
     String FriendPullTopic = "FP";
@@ -63,12 +75,20 @@ public interface IMTopic {
     String CreateChannelTopic = "CHC";
     String ModifyChannelInfoTopic = "CHMI";
     String TransferChannelInfoTopic = "CHT";
-    String DestoryChannelInfoTopic = "CHD";
+    String DestroyChannelInfoTopic = "CHD";
     String ChannelSearchTopic = "CHS";
     String ChannelListenTopic = "CHL";
     String ChannelPullTopic = "CHP";
+    String ListenedChannelListTopic = "CHLL";
 
     String GetTokenTopic = "GETTOKEN";
+    String DestroyUserTopic = "DESTROYUSER";
 
     String LoadRemoteMessagesTopic = "LRM";
+    String KickoffPCClientTopic = "KPCC";
+
+    String ClearSessionTopic = "CST";
+
+    String GetApplicationTokenRequestTopic = "ATR";
+    String ApplicationConfigRequestTopic = "ACR";
 }

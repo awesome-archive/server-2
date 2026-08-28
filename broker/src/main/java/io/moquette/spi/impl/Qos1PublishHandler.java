@@ -16,30 +16,28 @@
 
 package io.moquette.spi.impl;
 
+import static cn.wildfirechat.common.ErrorCode.*;
 import static io.moquette.spi.impl.Utils.readBytesAndRewind;
 import static io.netty.handler.codec.mqtt.MqttMessageIdVariableHeader.from;
 import static io.netty.handler.codec.mqtt.MqttQoS.AT_MOST_ONCE;
-import static cn.wildfirechat.common.ErrorCode.ERROR_CODE_NOT_IMPLEMENT;
-import static cn.wildfirechat.common.ErrorCode.ERROR_CODE_OVER_FREQUENCY;
-import static cn.wildfirechat.common.ErrorCode.ERROR_CODE_SUCCESS;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.*;
 import java.util.zip.GZIPOutputStream;
 
+import cn.hutool.core.util.ReflectUtil;
+import cn.wildfirechat.proto.ProtoConstants;
 import cn.wildfirechat.server.ThreadPoolExecutorWrapper;
 import com.google.gson.Gson;
-import com.xiaoleilu.loServer.RestResult;
 import com.xiaoleilu.loServer.action.ClassUtil;
 import cn.wildfirechat.pojos.OutputCheckUserOnline;
-import io.moquette.persistence.RPCCenter;
+import io.moquette.persistence.ServerAPIHelper;
 import io.moquette.imhandler.Handler;
 import io.moquette.imhandler.IMHandler;
 import io.moquette.persistence.MemorySessionStore;
 import io.moquette.server.ConnectionDescriptor;
 import io.moquette.server.Server;
-import io.moquette.spi.ClientSession;
 import io.moquette.spi.impl.security.AES;
 import io.netty.handler.codec.mqtt.MqttVersion;
 import io.netty.util.ReferenceCountUtil;
@@ -60,6 +58,7 @@ import io.netty.handler.codec.mqtt.MqttFixedHeader;
 import io.netty.handler.codec.mqtt.MqttMessageType;
 import io.netty.handler.codec.mqtt.MqttPublishMessage;
 import cn.wildfirechat.common.ErrorCode;
+import win.liyufan.im.GsonUtil;
 import win.liyufan.im.IMTopic;
 import win.liyufan.im.RateLimiter;
 import win.liyufan.im.Utility;
@@ -73,7 +72,6 @@ public class Qos1PublishHandler extends QosPublishHandler {
     private final MessagesPublisher publisher;
     private final ISessionsStore m_sessionStore;
     private final ThreadPoolExecutorWrapper m_imBusinessExecutor;
-    private final RateLimiter mLimitCounter = new RateLimiter(5, 100);
 
     private HashMap<String, IMHandler> m_imHandlers = new HashMap<>();
 
@@ -95,7 +93,7 @@ public class Qos1PublishHandler extends QosPublishHandler {
             for (Class cls:ClassUtil.getAllAssignedClass(IMHandler.class)) {
                 Handler annotation = (Handler)cls.getAnnotation(Handler.class);
                 if(annotation != null) {
-                    IMHandler handler = (IMHandler) com.xiaoleilu.hutool.util.ClassUtil.newInstance(cls);
+                    IMHandler handler = (IMHandler) ReflectUtil.newInstance(cls);
                     m_imHandlers.put(annotation.value(), handler);
                 }
             }
@@ -108,18 +106,18 @@ public class Qos1PublishHandler extends QosPublishHandler {
         }
     }
 
-    public void onRpcMsg(String fromUser, String clientId, byte[] message, int requestId, String from, String request, boolean isAdmin) {
-        if (request.equals(RPCCenter.CHECK_USER_ONLINE_REQUEST)) {
-            checkUserOnlineHandler(message, ackPayload -> RPCCenter.getInstance().sendResponse(ERROR_CODE_SUCCESS.getCode(), ackPayload, from, requestId));
+    public void onApiMessage(String fromUser, String clientId, byte[] message, int requestId, String from, String request, ProtoConstants.RequestSourceType requestSourceType) {
+        if (request.equals(ServerAPIHelper.CHECK_USER_ONLINE_REQUEST)) {
+            checkUserOnlineHandler(message, ackPayload -> ServerAPIHelper.sendResponse(ERROR_CODE_SUCCESS.getCode(), ackPayload, from, requestId));
         } else {
             imHandler(clientId, fromUser, request, message, (errorCode, ackPayload) -> {
                 if (requestId > 0) {
                     byte[] response = new byte[ackPayload.readableBytes()];
                     ackPayload.readBytes(response);
                     ReferenceCountUtil.release(ackPayload);
-                    RPCCenter.getInstance().sendResponse(errorCode.getCode(), response, from, requestId);
+                    ServerAPIHelper.sendResponse(errorCode.getCode(), response, from, requestId);
                 }
-            }, isAdmin);
+            }, requestSourceType);
         }
     }
 
@@ -128,41 +126,30 @@ public class Qos1PublishHandler extends QosPublishHandler {
             String userId = new String(payloadContent);
 
             int status;
-            ClientSession clientSession = m_sessionStore.sessionForClient(userId);
-            if (clientSession == null) {
-                status = 2;
-            } else {
-                ConnectionDescriptor descriptor = connectionDescriptors.getConnection(clientSession.clientID);
+            Collection<MemorySessionStore.Session> useSessions = m_sessionStore.sessionForUser(userId);
+            OutputCheckUserOnline out = new OutputCheckUserOnline();
+
+            for (MemorySessionStore.Session session : useSessions) {
+                if (session.getDeleted() > 0) {
+                    continue;
+                }
+
+                ConnectionDescriptor descriptor = connectionDescriptors.getConnection(session.getClientID());
                 if (descriptor == null) {
                     status = 1;
                 } else {
                     status = 0;
                 }
+
+                out.addSession(userId, session.getClientID(), session.getPlatform(), status, session.getLastActiveTime(), session.getAppName(), session.getIp());
             }
 
-            OutputCheckUserOnline out = new OutputCheckUserOnline();
-            out.setStatus(status);
-            RestResult result = RestResult.ok(out);
-
-            callback.onRouteHandled(new Gson().toJson(result).getBytes());
+            callback.onRouteHandled(GsonUtil.gson.toJson(out).getBytes());
         });
     }
 
-	void imHandler(String clientID, String fromUser, String topic, byte[] payloadContent, IMCallback callback, boolean isAdmin) {
+	void imHandler(String clientID, String fromUser, String topic, byte[] payloadContent, IMCallback callback, ProtoConstants.RequestSourceType requestSourceType) {
         LOG.info("imHandler fromUser={}, topic={}", fromUser, topic);
-        if(!mLimitCounter.isGranted(clientID + fromUser + topic)) {
-            ByteBuf ackPayload = Unpooled.buffer();
-            ackPayload.ensureWritable(1).writeByte(ERROR_CODE_OVER_FREQUENCY.getCode());
-            try {
-                callback.onIMHandled(ERROR_CODE_OVER_FREQUENCY, ackPayload);
-            } catch (Exception e) {
-                e.printStackTrace();
-                Utility.printExecption(LOG, e);
-            }
-            LOG.warn("user {} request over frequency", fromUser);
-            return;
-        }
-
         IMCallback wrapper = (errorcode, ackPayload) -> {
             ackPayload.resetReaderIndex();
             byte code = ackPayload.readByte();
@@ -178,15 +165,19 @@ public class Qos1PublishHandler extends QosPublishHandler {
                         } else {
                             MemorySessionStore.Session session = m_sessionStore.getSession(clientID);
                             if (session != null && session.getUsername().equals(fromUser)) {
-                                if (data.length > 7*1024 && session.getMqttVersion() == MqttVersion.Wildfire_1) {
+                                if (data.length > 7*1024 && session.getMqttVersion().protocolLevel() >= MqttVersion.MQTT_5.protocolLevel()) {
                                     ByteArrayOutputStream out = new ByteArrayOutputStream();
-                                    GZIPOutputStream gzip;
+                                    GZIPOutputStream gzip = null;
                                     try {
                                         gzip = new GZIPOutputStream(out);
                                         gzip.write(data);
-                                        gzip.close();
                                     } catch (Exception e) {
                                         e.printStackTrace();
+                                        Utility.printExecption(LOG, e);
+                                    } finally {
+                                        if(gzip != null) {
+                                            gzip.close();
+                                        }
                                     }
                                     data = out.toByteArray();
                                     code = (byte)ErrorCode.ERROR_CODE_SUCCESS_GZIPED.code;
@@ -216,7 +207,7 @@ public class Qos1PublishHandler extends QosPublishHandler {
 
         IMHandler handler = m_imHandlers.get(topic);
         if (handler != null) {
-            handler.doHandler(clientID, fromUser, topic, payloadContent, wrapper, isAdmin);
+            handler.doHandler(clientID, fromUser, topic, payloadContent, wrapper, requestSourceType);
         } else {
             LOG.error("imHandler unknown topic={}", topic);
             ByteBuf ackPayload = Unpooled.buffer();
@@ -253,9 +244,18 @@ public class Qos1PublishHandler extends QosPublishHandler {
         String imtopic = topic.getTopic();
         ByteBuf payload = msg.payload();
         byte[] payloadContent = readBytesAndRewind(payload);
-        MemorySessionStore.Session session = m_sessionStore.getSession(clientID);
-        payloadContent = AES.AESDecrypt(payloadContent, session.getSecret(), true);
-        imHandler(clientID, username, imtopic, payloadContent, (errorCode, ackPayload) -> sendPubAck(clientID, messageID, ackPayload, errorCode), false);
+        if(payloadContent.length > 0) {
+            MemorySessionStore.Session session = m_sessionStore.getSession(clientID);
+            payloadContent = AES.AESDecrypt(payloadContent, session.getSecret(), true);
+            if(payloadContent == null) {
+                ByteBuf ackPayload = Unpooled.buffer();
+                ackPayload.ensureWritable(1).writeByte(ERROR_CODE_INVALID_DATA.getCode());
+                sendPubAck(clientID, messageID, ackPayload, ERROR_CODE_INVALID_DATA);
+                return;
+            }
+        }
+
+        imHandler(clientID, username, imtopic, payloadContent, (errorCode, ackPayload) -> sendPubAck(clientID, messageID, ackPayload, errorCode), ProtoConstants.RequestSourceType.Request_From_User);
     }
 
     private void sendPubAck(String clientId, int messageID, ByteBuf payload, ErrorCode errorCode) {

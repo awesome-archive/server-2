@@ -48,19 +48,16 @@ public class GetUserAction extends AdminAction {
                     user = messagesStore.getUserInfoByMobile(inputUserId.getMobile());
                 }
 
-                response.setStatus(HttpResponseStatus.OK);
                 RestResult result;
-                if (user == null) {
+                if (user == null || (user.getDeleted() > 0 && !inputUserId.isIncludeDeleted())) {
                     result = RestResult.resultOf(ErrorCode.ERROR_CODE_NOT_EXIST);
                 } else {
                     result = RestResult.ok(InputOutputUserInfo.fromPbUser(user));
                 }
 
-                response.setContent(new Gson().toJson(result));
+                setResponseContent(result, response);
             } else {
-                response.setStatus(HttpResponseStatus.OK);
-                RestResult result = RestResult.resultOf(ErrorCode.INVALID_PARAMETER);
-                response.setContent(new Gson().toJson(result));
+                setResponseContent(RestResult.resultOf(ErrorCode.INVALID_PARAMETER), response);
             }
 
         }

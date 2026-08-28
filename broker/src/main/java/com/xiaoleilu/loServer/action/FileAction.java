@@ -1,20 +1,22 @@
 package com.xiaoleilu.loServer.action;
 
 import java.io.File;
+import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
+import java.net.URLEncoder;
+import java.nio.file.Files;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
 import java.util.regex.Pattern;
 
+import cn.hutool.core.date.DateUtil;
+import cn.hutool.core.io.FileUtil;
+import cn.hutool.core.util.ReUtil;
+import cn.hutool.core.util.StrUtil;
 import com.hazelcast.core.HazelcastInstance;
-import com.xiaoleilu.hutool.log.Log;
-import com.xiaoleilu.hutool.log.StaticLog;
-import com.xiaoleilu.hutool.util.DateUtil;
-import com.xiaoleilu.hutool.util.FileUtil;
-import com.xiaoleilu.hutool.util.ReUtil;
-import com.xiaoleilu.hutool.util.StrUtil;
+import com.hazelcast.util.StringUtil;
 import com.xiaoleilu.loServer.ServerSetting;
 import com.xiaoleilu.loServer.handler.Request;
 import com.xiaoleilu.loServer.handler.Response;
@@ -23,6 +25,8 @@ import io.moquette.spi.IMessagesStore;
 import io.netty.handler.codec.http.HttpHeaderNames;
 import io.netty.handler.codec.http.HttpResponseStatus;
 import org.slf4j.LoggerFactory;
+
+import static cn.hutool.core.date.DatePattern.HTTP_DATETIME_PATTERN;
 
 /**
  * 默认的主页Action，当访问主页且没有定义主页Action时，调用此Action
@@ -35,6 +39,7 @@ public class FileAction extends Action {
 
     @Override
     public boolean action(Request request, Response response) {
+        response.setHeader("Access-Control-Allow-Origin", "*");
         if (false == Request.METHOD_GET.equalsIgnoreCase(request.getMethod())) {
             response.sendError(HttpResponseStatus.METHOD_NOT_ALLOWED, "Please use GET method to request file!");
             return true;
@@ -45,21 +50,28 @@ public class FileAction extends Action {
             return true;
         }
 
-        final File file = getFileByPath(request.getPath());
-        Logger.debug("Client [{}] get file [{}]", request.getIp(), file.getPath());
+        File file = null;
+        try {
+            file = getFileByPath(request.getPath());
+        } catch (Exception e) {
+            response.sendError(HttpResponseStatus.NOT_FOUND, "404 File not found!");
+            return true;
+        }
 
-        // 隐藏文件，跳过
-        if (file.isHidden() || !file.exists()) {
+        // 隐藏文件或不存在，跳过
+        if (file == null || file.isHidden() || !file.exists()) {
             response.sendError(HttpResponseStatus.NOT_FOUND, "404 File not found!");
             return true;
         }
 
         // 非文件，跳过
-        if (false == file.isFile()) {
+        if (!file.isFile()) {
             response.sendError(HttpResponseStatus.FORBIDDEN, "403 Forbidden!");
             return true;
         }
 
+        Logger.debug("Client [{}] get file [{}]", request.getIp(), file.getPath());
+        
         // Cache Validation
         String ifModifiedSince = request.getHeader(HttpHeaderNames.IF_MODIFIED_SINCE.toString());
         if (StrUtil.isNotBlank(ifModifiedSince)) {
@@ -82,11 +94,28 @@ public class FileAction extends Action {
         }
 
         response.setContent(file);
+        if (isAudioOrVideoFile(file.getName())) {
+            response.setHeader("Accept-Ranges", "bytes");
+        } else {
+            response.setHeader("Content-Disposition", "attachment; filename=\"" + file.getName() + "\"");
+        }
+
         return true;
     }
 
+    private static boolean isAudioOrVideoFile(String name) {
+        try {
+            if (StringUtil.isNullOrEmpty(name)) return false;
+
+            String mimeType = Files.probeContentType(new File(name).toPath());
+            return mimeType != null && (mimeType.startsWith("audio/") || mimeType.startsWith("video/"));
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
     private static final Pattern INSECURE_URI = Pattern.compile(".*[<>&\"].*");
-	private static final SimpleDateFormat HTTP_DATE_FORMATER = new SimpleDateFormat(DateUtil.HTTP_DATETIME_PATTERN, Locale.US);
+	private static final SimpleDateFormat HTTP_DATE_FORMATER = new SimpleDateFormat(HTTP_DATETIME_PATTERN, Locale.US);
 
 	
 	/**
@@ -107,12 +136,33 @@ public class FileAction extends Action {
 			return null;
 		}
 
-		// 路径安全检查
-		if (httpPath.contains("/.") || httpPath.contains("./") || httpPath.charAt(0) == '.' || httpPath.charAt(httpPath.length() - 1) == '.' || ReUtil.isMatch(INSECURE_URI, httpPath)) {
+		// 去除开头的 '/'，避免子路径被当作绝对路径处理
+		String relativePath = httpPath.substring(1);
+
+		// 路径安全检查：禁止目录穿越片段及危险字符
+		if (relativePath.contains("../") || relativePath.contains("/..")
+				|| relativePath.contains("./") || relativePath.contains("/.")) {
+			return null;
+		}
+		if (ReUtil.isMatch(INSECURE_URI, relativePath)) {
 			return null;
 		}
 
 		// 转换为绝对路径
-		return FileUtil.file(ServerSetting.getRoot(), httpPath);
+		File file = FileUtil.file(ServerSetting.getRoot(), relativePath);
+
+		// 最终校验：解析规范路径后必须仍位于根目录内（防御软链接、路径规范化绕过等）
+		try {
+			File canonicalRoot = ServerSetting.getRoot().getCanonicalFile();
+			File canonicalFile = file.getCanonicalFile();
+			if (!canonicalFile.toPath().startsWith(canonicalRoot.toPath())) {
+				return null;
+			}
+		} catch (IOException e) {
+			Logger.warn("Failed to canonicalize file path: {}", e.getMessage());
+			return null;
+		}
+
+		return file;
 	}
 }

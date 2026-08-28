@@ -24,6 +24,8 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.RandomAccessFile;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.UUID;
@@ -42,8 +44,8 @@ public class UploadFileAction extends Action {
 
     }
 
-    public static String getToken(int type) {
-        String signKey = KEY + "|" + (System.currentTimeMillis()) + "|" + type;
+    public static String getToken(int type, String key) {
+        String signKey = KEY + "|" + (System.currentTimeMillis()) + "|" + type + "|" + key;
         try {
             return DES.encryptDES(signKey);
         } catch (Exception e) {
@@ -53,14 +55,17 @@ public class UploadFileAction extends Action {
         return null;
     }
 
-    public static int validateToken(String token) throws InvalidateTokenExecption {
+    public static int validateToken(String token, String[] fileNames) throws InvalidateTokenExecption {
         try {
             String signKey = DES.decryptDES(token);
             String[] parts = signKey.split("\\|");
-            if(parts.length == 3) {
+            if(parts.length >= 3) {
                 if(parts[0].equals(KEY)) {
                     long timestamp = Long.parseLong(parts[1]);
                     if(Math.abs(System.currentTimeMillis() - timestamp) < 2 * 60 * 60 * 1000) {
+                        if(parts.length == 4) {
+                            fileNames[0] = parts[3];
+                        }
                         return Integer.parseInt(parts[2]);
                     }
                 }
@@ -131,7 +136,8 @@ public class UploadFileAction extends Action {
                 }
 
                 readHttpDataChunkByChunk(response, decoder, requestId, HttpHeaders.isKeepAlive(request));
-
+                decoder.destroy();
+                
                 if (chunk instanceof LastHttpContent) {
 
                 }
@@ -150,11 +156,14 @@ public class UploadFileAction extends Action {
         try {
             int[] bucket = new int[1];
             bucket[0] = -1;
+            String[] fileNames = new String[1];
+            fileNames[0] = null;
+
             while (decoder.hasNext()) {
                 InterfaceHttpData data = decoder.next();
                 if (data != null) {
                     try {
-                        if(!writeFileUploadData(data, response, requestId, isKeepAlive, bucket)) {
+                        if(!writeFileUploadData(data, response, requestId, isKeepAlive, bucket, fileNames)) {
                             break;
                         }
                     } finally {
@@ -170,12 +179,15 @@ public class UploadFileAction extends Action {
     /**
      * writeFileUploadData
      */
-    private boolean writeFileUploadData(InterfaceHttpData data, Response response, String requestId, boolean isKeepAlive, int[] bucket) {
+    private boolean writeFileUploadData(InterfaceHttpData data, Response response, String requestId, boolean isKeepAlive, int[] bucket, String[] fileNames) {
         try {
             if (data.getHttpDataType() == InterfaceHttpData.HttpDataType.FileUpload) {
                 FileUpload fileUpload = (FileUpload) data;
 
                 String remoteFileName = fileUpload.getFilename();
+                if(fileNames[0] != null) {
+                    remoteFileName = fileNames[0];
+                }
                 long remoteFileSize = fileUpload.length();
 
                 if(bucket[0] == -1) {
@@ -184,6 +196,10 @@ public class UploadFileAction extends Action {
                     response.setStatus(HttpResponseStatus.BAD_REQUEST);
                     response.setContent("Not authenticated!");
                     return false;
+                }
+
+                if(remoteFileName != null && remoteFileName.length() > 2 && remoteFileName.startsWith("'") && remoteFileName.endsWith("'")) {
+                    remoteFileName = remoteFileName.substring(1, remoteFileName.length()-1);
                 }
 
                 if (StringUtil.isNullOrEmpty(remoteFileName)) {
@@ -201,14 +217,14 @@ public class UploadFileAction extends Action {
                     return false;
                 }
 
-                if (remoteFileSize > 50 * 1024 * 1024) {
+                if (remoteFileSize > 200 * 1024 * 1024) {
                     logger.warn("file over limite!(" + remoteFileSize + ")");
                     response.setStatus(HttpResponseStatus.BAD_REQUEST);
                     response.setContent("file over limite!");
                     return false;
                 }
 
-
+                remoteFileName = getSafeFileName(remoteFileName);
 
                 String remoteFileExt = "";
                 if (remoteFileName.lastIndexOf(".") == -1) {
@@ -234,12 +250,17 @@ public class UploadFileAction extends Action {
                 int offset = 0; // 断点续传开始位置
 
                 Date nowTime=new Date();
-                SimpleDateFormat time=new SimpleDateFormat("yyyy/MM/dd/HH");
+                SimpleDateFormat time=new SimpleDateFormat("yyyy/MM/dd/HH/mm/ss");
                 String datePath = time.format(nowTime);
 
                 datePath = "fs/" + bucket[0] + "/" + datePath; //add bucket
 
-                String dir = "./" + MediaServerConfig.FILE_STROAGE_ROOT + "/" + datePath;
+                String dir;
+                if(MediaServerConfig.FILE_STROAGE_ROOT.startsWith("/") || MediaServerConfig.FILE_STROAGE_ROOT.startsWith("~/") || MediaServerConfig.FILE_STROAGE_ROOT.startsWith("./")) {
+                    dir = MediaServerConfig.FILE_STROAGE_ROOT + "/" + datePath;
+                } else {
+                    dir = "./" + MediaServerConfig.FILE_STROAGE_ROOT + "/" + datePath;
+                }
 
                 File dirFile = new File(dir);
                 boolean bFile  = dirFile.exists();
@@ -247,6 +268,7 @@ public class UploadFileAction extends Action {
                 if(!bFile) {
                     bFile = dirFile.mkdirs();
                     if (!bFile) {
+                        logger.error("create dirs error! {}", dir);
                         response.setStatus(HttpResponseStatus.INTERNAL_SERVER_ERROR);
                         response.setContent("服务器错误：无法创建文件");
                         return false;
@@ -254,7 +276,7 @@ public class UploadFileAction extends Action {
                 }
 
 
-                String filePath = dir + "/" + requestId;
+                String filePath = dir + "/" + (StringUtil.isNullOrEmpty(remoteFileName) ? requestId : remoteFileName);
                 logger.info("the file path is " + filePath);
 
                 File tmpFile = new File(filePath);
@@ -273,13 +295,14 @@ public class UploadFileAction extends Action {
 
                         savedThunkSize += readableBytesSize;
                         offset += readableBytesSize;
+                        byteBuf.release();
+                        byteBuf = null;
 
                         if (savedThunkSize >= remoteFileSize) {
-                            byteBuf.release();
                             fileUpload.release();
 
                             response.setStatus(HttpResponseStatus.OK);
-                            String relativePath = datePath + "/" +  requestId;
+                            String relativePath = datePath + "/" +  (StringUtil.isNullOrEmpty(remoteFileName) ? requestId : remoteFileName);
                             response.setContent("{\"key\":\"" + relativePath + "\"}");
                             break;
                         }
@@ -309,7 +332,7 @@ public class UploadFileAction extends Action {
                     String token = attribute.getValue();
 
                     try {
-                        bucket[0] = validateToken(token);
+                        bucket[0] = validateToken(token, fileNames);
                     } catch (InvalidateTokenExecption e) {
                         logger.error("无效的token!", e);
                         response.setStatus(HttpResponseStatus.BAD_REQUEST);
@@ -325,6 +348,15 @@ public class UploadFileAction extends Action {
             return false;
         }
         return true;
+    }
+
+    private static String getSafeFileName(String originalFilename) {
+        // Paths.get() 会解析路径，getFileName() 只取最后一部分（纯文件名）
+        Path filenamePath = Paths.get(originalFilename.trim());
+        String safeFilename = filenamePath.getFileName().toString();
+        // 额外过滤特殊字符（可选，根据业务需要）
+        safeFilename = safeFilename.replaceAll("[\\\\/:*?\"<>|]", "_");
+        return safeFilename.isEmpty() ? "default_file_" + System.currentTimeMillis() : safeFilename;
     }
 
     public static void put(File file, long pos, byte[] data) throws Exception {

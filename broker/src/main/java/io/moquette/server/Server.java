@@ -16,6 +16,7 @@
 
 package io.moquette.server;
 
+import cn.wildfirechat.proto.ProtoConstants;
 import cn.wildfirechat.push.PushServer;
 import cn.wildfirechat.server.ThreadPoolExecutorWrapper;
 import com.hazelcast.config.ClasspathXmlConfig;
@@ -24,7 +25,9 @@ import com.hazelcast.config.FileSystemXmlConfig;
 import com.hazelcast.core.*;
 import com.xiaoleilu.loServer.LoServer;
 import com.xiaoleilu.loServer.ServerSetting;
+import com.xiaoleilu.loServer.action.Action;
 import com.xiaoleilu.loServer.action.admin.AdminAction;
+import cn.wildfirechat.oplog.OpLogRecorder;
 import io.moquette.BrokerConstants;
 import io.moquette.persistence.*;
 import io.moquette.connections.IConnectionsManager;
@@ -35,11 +38,9 @@ import io.moquette.spi.IStore;
 import io.moquette.spi.impl.ProtocolProcessor;
 import io.moquette.spi.impl.ProtocolProcessorBootstrapper;
 import io.moquette.spi.impl.security.AES;
-import io.moquette.spi.security.IAuthenticator;
-import io.moquette.spi.security.IAuthorizator;
-import io.moquette.spi.security.ISslContextCreator;
-import io.moquette.spi.security.Tokenor;
+import io.moquette.spi.security.*;
 import io.netty.util.ResourceLeakDetector;
+import io.netty.util.internal.StringUtil;
 import win.liyufan.im.DBUtil;
 
 import org.slf4j.Logger;
@@ -79,6 +80,9 @@ public class Server {
     }
 
     private ServerAcceptor m_acceptor;
+    private long startTime;
+
+    private boolean m_shutdowning = false;
 
     public volatile boolean m_initialized;
 
@@ -90,12 +94,17 @@ public class Server {
 
     private ThreadPoolExecutorWrapper dbScheduler;
     private ThreadPoolExecutorWrapper imBusinessScheduler;
+    private ThreadPoolExecutorWrapper callbackScheduler;
 
     private IConfig mConfig;
 
     private IStore m_store;
     static {
         System.out.println(BANNER);
+    }
+
+    public Server() {
+        startTime = System.currentTimeMillis();
     }
 
     public static void start(String[] args) throws IOException {
@@ -129,7 +138,7 @@ public class Server {
         Runtime.getRuntime().addShutdownHook(new Thread(instance::stopServer));
         Runtime.getRuntime().addShutdownHook(new Thread(httpServer::shutdown));
 
-        System.out.println("Wildfire IM server start success...");
+        System.out.println("Wildfire IM server start success.");
     }
 
     /**
@@ -221,24 +230,13 @@ public class Server {
             handlers = Collections.emptyList();
         }
         DBUtil.init(config);
-        String strKey = config.getProperty(BrokerConstants.CLIENT_PROTO_SECRET_KEY);
-        String[] strs = strKey.split(",");
-        if(strs.length != 16) {
-            LOG.error("Key error, it length should be 16");
-        }
-        byte[] keys = new byte[16];
-        for (int i = 0; i < 16; i++) {
-            keys[i] = (byte)(Integer.parseInt(strs[i].replace("0X", "").replace("0x", ""), 16));
-        }
-
-
-        AES.init(keys);
 
         LOG.info("Starting Moquette Server. MQTT message interceptors={}", getInterceptorIds(handlers));
 
         int threadNum = Runtime.getRuntime().availableProcessors() * 2;
         dbScheduler = new ThreadPoolExecutorWrapper(Executors.newScheduledThreadPool(threadNum), threadNum, "db");
         imBusinessScheduler = new ThreadPoolExecutorWrapper(Executors.newScheduledThreadPool(threadNum), threadNum, "business");
+        callbackScheduler = new ThreadPoolExecutorWrapper(Executors.newScheduledThreadPool(1), 1, "callback");
 
         final String handlerProp = System.getProperty(BrokerConstants.INTERCEPT_HANDLER_PROPERTY_NAME);
         if (handlerProp != null) {
@@ -246,6 +244,10 @@ public class Server {
         }
 
         initMediaServerConfig(config);
+
+        Action.init(config);
+        String monitorEventAddress = config.getProperty(MONITOR_Exception_Event_Address);
+        Utility.setMonitorEventAddress(monitorEventAddress);
 
         final String persistencePath = config.getProperty(BrokerConstants.PERSISTENT_STORE_PROPERTY_NAME);
         LOG.info("Configuring Using persistent store file, path={}", persistencePath);
@@ -255,6 +257,7 @@ public class Server {
         boolean configured = configureCluster(config);
 
         m_store.initStore();
+        OpLogRecorder.init(config);
         final ProtocolProcessor processor = m_processorBootstrapper.init(config, handlers, authenticator, authorizator,
             this, m_store);
         LOG.info("Initialized MQTT protocol processor");
@@ -315,12 +318,29 @@ public class Server {
         MediaServerConfig.QINIU_BUCKET_FILE_NAME = config.getProperty(BrokerConstants.QINIU_BUCKET_FILE_NAME);
         MediaServerConfig.QINIU_BUCKET_FILE_DOMAIN = config.getProperty(BrokerConstants.QINIU_BUCKET_FILE_DOMAIN);
 
+        MediaServerConfig.QINIU_BUCKET_STICKER_NAME = config.getProperty(BrokerConstants.QINIU_BUCKET_STICKER_NAME);
+        MediaServerConfig.QINIU_BUCKET_STICKER_DOMAIN = config.getProperty(BrokerConstants.QINIU_BUCKET_STICKER_DOMAIN);
+
+        MediaServerConfig.QINIU_BUCKET_MOMENTS_NAME = config.getProperty(BrokerConstants.QINIU_BUCKET_MOMENTS_NAME);
+        MediaServerConfig.QINIU_BUCKET_MOMENTS_DOMAIN = config.getProperty(BrokerConstants.QINIU_BUCKET_MOMENTS_DOMAIN);
+
         MediaServerConfig.QINIU_BUCKET_PORTRAIT_NAME = config.getProperty(BrokerConstants.QINIU_BUCKET_PORTRAIT_NAME);
         MediaServerConfig.QINIU_BUCKET_PORTRAIT_DOMAIN = config.getProperty(BrokerConstants.QINIU_BUCKET_PORTRAIT_DOMAIN);
 
         MediaServerConfig.QINIU_BUCKET_FAVORITE_NAME = config.getProperty(BrokerConstants.QINIU_BUCKET_FAVORITE_NAME);
         MediaServerConfig.QINIU_BUCKET_FAVORITE_DOMAIN = config.getProperty(BrokerConstants.QINIU_BUCKET_FAVORITE_DOMAIN);
 
+        MediaServerConfig.QINIU_BUCKET_CUSTOM1_NAME = config.getProperty(BrokerConstants.QINIU_BUCKET_CUSTOM1_NAME);
+        MediaServerConfig.QINIU_BUCKET_CUSTOM1_DOMAIN = config.getProperty(BrokerConstants.QINIU_BUCKET_CUSTOM1_DOMAIN);
+
+        MediaServerConfig.QINIU_BUCKET_CUSTOM2_NAME = config.getProperty(BrokerConstants.QINIU_BUCKET_CUSTOM2_NAME);
+        MediaServerConfig.QINIU_BUCKET_CUSTOM2_DOMAIN = config.getProperty(BrokerConstants.QINIU_BUCKET_CUSTOM2_DOMAIN);
+
+        MediaServerConfig.QINIU_BUCKET_CUSTOM3_NAME = config.getProperty(BrokerConstants.QINIU_BUCKET_CUSTOM3_NAME);
+        MediaServerConfig.QINIU_BUCKET_CUSTOM3_DOMAIN = config.getProperty(BrokerConstants.QINIU_BUCKET_CUSTOM3_DOMAIN);
+
+        MediaServerConfig.QINIU_BUCKET_PAN_NAME = config.getProperty(BrokerConstants.QINIU_BUCKET_PAN_NAME);
+        MediaServerConfig.QINIU_BUCKET_PAN_DOMAIN = config.getProperty(BrokerConstants.QINIU_BUCKET_PAN_DOMAIN);
 
     	MediaServerConfig.SERVER_IP = getServerIp(config);
 
@@ -332,25 +352,35 @@ public class Server {
             file.mkdirs();
         }
         ServerSetting.setRoot(file);
+        MediaServerConfig.FILE_STROAGE_REMOTE_SERVER_URL = config.getProperty(FILE_STORAGE_REMOTE_SERVER_URL);
 
         MediaServerConfig.USER_QINIU = Integer.parseInt(config.getProperty(BrokerConstants.USER_QINIU)) > 0;
+        if(MediaServerConfig.USER_QINIU) {
+            if(MediaServerConfig.QINIU_SERVER_URL.split(":").length == 2) {
+                String error = "媒体存储服务只能填上Host，不能带端口";
+                System.out.println(error);
+                LOG.error(error);
+            }
+        }
     }
+    
     private String getServerIp(IConfig config) {
         String serverIp = config.getProperty(BrokerConstants.SERVER_IP_PROPERTY_NAME);
-
         if (serverIp == null || serverIp.equals("0.0.0.0")) {
-            serverIp = Utility.getLocalAddress().getHostAddress();
+            if(Utility.getLocalAddress() != null) {
+                serverIp = Utility.getLocalAddress().getHostAddress();
+            } else {
+                serverIp = "0.0.0.0";
+            }
         }
         return serverIp;
     }
+
     private boolean configureCluster(IConfig config) throws FileNotFoundException {
         LOG.info("Configuring embedded Hazelcast instance");
-        String serverIp = getServerIp(config);
 
-        String hzConfigPath = config.getProperty(BrokerConstants.HAZELCAST_CONFIGURATION);
-        String hzClientIp = config.getProperty(BrokerConstants.HAZELCAST_CLIENT_IP, "localhost");
-        String hzClientPort = config.getProperty(BrokerConstants.HAZELCAST_CLIENT_PORT, "5703");
-
+        serverIp = getServerIp(config);
+        String hzConfigPath = System.getProperty("hazelcast.configuration", "config/hazelcast.xml");
         if (hzConfigPath != null) {
             boolean isHzConfigOnClasspath = this.getClass().getClassLoader().getResource(hzConfigPath) != null;
             Config hzconfig = isHzConfigOnClasspath
@@ -363,50 +393,62 @@ public class Server {
             hazelcastInstance = Hazelcast.newHazelcastInstance();
         }
 
+        longPort = config.getProperty(BrokerConstants.PORT_PROPERTY_NAME);
+        shortPort = config.getProperty(BrokerConstants.HTTP_SERVER_PORT);
+        boolean aes256 = Boolean.parseBoolean(config.getProperty(ENCRYPT_AES256, "false"));
 
-        String longPort = config.getProperty(BrokerConstants.PORT_PROPERTY_NAME);
-        String shortPort = config.getProperty(BrokerConstants.HTTP_SERVER_PORT);
-        String nodeIdStr = config.getProperty(BrokerConstants.NODE_ID);
-        ISet<Integer> nodeIdSet = hazelcastInstance.getSet(BrokerConstants.NODE_IDS);
-        int nodeId;
-        try {
-            nodeId = Integer.parseInt(nodeIdStr);
-        }catch (Exception e){
-            throw new IllegalArgumentException("nodeId error: " + nodeIdStr);
-        }
-        if (nodeIdSet != null && nodeIdSet.contains(nodeId)){
-            LOG.error("只允许一个实例运行，多个实例会引起冲突，进程终止");
-            System.exit(-1);
-        }
-
-        MessageShardingUtil.setNodeId(nodeId);
-        nodeIdSet.add(nodeId);
-
-        hazelcastInstance.getCluster().getLocalMember().setStringAttribute(HZ_Cluster_Node_External_Long_Port, longPort);
-        hazelcastInstance.getCluster().getLocalMember().setStringAttribute(HZ_Cluster_Node_External_Short_Port, shortPort);
-        hazelcastInstance.getCluster().getLocalMember().setIntAttribute(HZ_Cluster_Node_ID, nodeId);
-        hazelcastInstance.getCluster().getLocalMember().setStringAttribute(HZ_Cluster_Node_External_IP, serverIp);
+        MessageShardingUtil.setNodeId(1);
         Tokenor.setKey(config.getProperty(BrokerConstants.TOKEN_SECRET_KEY));
-        RPCCenter.getInstance().init(this);
+        DES.setEncryptPassword(config.getProperty(BrokerConstants.TOKEN_ENCRYPT_KEY));
+        AES.useAes256(aes256);
+
+        String expirTimeStr = config.getProperty(TOKEN_EXPIRE_TIME);
+        if (!StringUtil.isNullOrEmpty(expirTimeStr)) {
+            try {
+                Tokenor.setExpiredTime(Long.parseLong(expirTimeStr));
+            } catch (NumberFormatException e) {
+                e.printStackTrace();
+            }
+        }
+        ServerAPIHelper.init(this);
         return true;
+    }
+
+    private String serverIp;
+    private String longPort;
+    private String shortPort;
+
+    public String getServerIp() {
+        return serverIp;
+    }
+
+    public String getLongPort() {
+        return longPort;
+    }
+
+    public String getShortPort() {
+        return shortPort;
     }
 
     public HazelcastInstance getHazelcastInstance() {
         return hazelcastInstance;
     }
 
-    public void internalRpcMsg(String fromUser, String clientId, byte[] message, int messageId, String from, String request, boolean isAdmin) {
+    public void onApiMessage(String fromUser, String clientId, byte[] message, int messageId, String from, String request, ProtoConstants.RequestSourceType requestSourceType) {
+        LOG.debug("onApiMessage");
+        m_processor.onApiMessage(fromUser, clientId, message, messageId, from, request, requestSourceType);
+    }
 
-        if (!m_initialized) {
-            LOG.error("Moquette is not started, internal message cannot be notify");
-            return;
-        }
-        LOG.debug("internalNotifyMsg");
-        m_processor.onRpcMsg(fromUser, clientId, message, messageId, from, request, isAdmin);
+    public boolean isShutdowning() {
+        return m_shutdowning;
     }
 
     public void stopServer() {
+        System.out.println("Server will flush data to db before shutting down, please wait 5 seconds!");
         LOG.info("Unbinding server from the configured ports");
+        m_shutdowning = true;
+        DBUtil.SystemExiting = true;
+
         m_acceptor.close();
         LOG.trace("Stopping MQTT protocol processor");
         m_processorBootstrapper.shutdown();
@@ -422,6 +464,7 @@ public class Server {
 
         dbScheduler.shutdown();
         imBusinessScheduler.shutdown();
+        callbackScheduler.shutdown();
 
         LOG.info("Moquette server has been stopped.");
     }
@@ -481,5 +524,12 @@ public class Server {
 
     public ThreadPoolExecutorWrapper getImBusinessScheduler() {
         return imBusinessScheduler;
+    }
+
+    public ThreadPoolExecutorWrapper getCallbackScheduler() {
+        return callbackScheduler;
+    }
+    public long getRunTime() {
+        return (System.currentTimeMillis() - startTime)/1000;
     }
 }

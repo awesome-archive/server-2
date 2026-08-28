@@ -11,7 +11,9 @@ while [ -h "$PRG" ]; do
   if expr "$link" : '/.*' > /dev/null; then
     PRG="$link"
   else
-    PRG=`dirname "$PRG"`/"$link"
+    PRGDIR=`dirname "$PRG"`
+    cd $PRGDIR
+    PRG="`pwd`"/"$link"
   fi
 done
 
@@ -31,11 +33,15 @@ else
 fi
 export JAVA
 
-LOG_FILE=$WILDFIRECHAT_HOME/config/log4j.properties
-HZ_CONF_FILE=$WILDFIRECHAT_HOME/config/hazelcast.xml
-C3P0_CONF_FILE=$WILDFIRECHAT_HOME/config/c3p0-config.xml
+$JAVA -version
 
-WILDFIRECHAT_PATH=$WILDFIRECHAT_HOME/
+WILDFIRECHAT_CONFIG_PATH=$WILDFIRECHAT_HOME
+
+LOG_FILE=$WILDFIRECHAT_CONFIG_PATH/config/log4j2.xml
+HZ_CONF_FILE=$WILDFIRECHAT_CONFIG_PATH/config/hazelcast.xml
+C3P0_CONF_FILE=$WILDFIRECHAT_CONFIG_PATH/config/c3p0-config.xml
+
+
 #LOG_CONSOLE_LEVEL=info
 #LOG_FILE_LEVEL=fine
 JAVA_OPTS_SCRIPT="-XX:+HeapDumpOnOutOfMemoryError -Djava.awt.headless=true"
@@ -69,19 +75,26 @@ JAVA_OPTS="$JAVA_OPTS -XX:MaxGCPauseMillis=500"
 
 ### GC logging options -- uncomment to enable
 
-JAVA_OPTS="$JAVA_OPTS -XX:+PrintGCDetails"
-JAVA_OPTS="$JAVA_OPTS -XX:+PrintGCDateStamps"
-JAVA_OPTS="$JAVA_OPTS -XX:+PrintHeapAtGC"
-JAVA_OPTS="$JAVA_OPTS -XX:+PrintTenuringDistribution"
-JAVA_OPTS="$JAVA_OPTS -XX:+PrintGCApplicationStoppedTime"
-JAVA_OPTS="$JAVA_OPTS -XX:+PrintPromotionFailure"
+#JAVA_OPTS="$JAVA_OPTS -XX:+PrintGCDetails"
+#JAVA_OPTS="$JAVA_OPTS -XX:+PrintGCDateStamps"
+#JAVA_OPTS="$JAVA_OPTS -XX:+PrintHeapAtGC"
+#JAVA_OPTS="$JAVA_OPTS -XX:+PrintTenuringDistribution"
+#JAVA_OPTS="$JAVA_OPTS -XX:+PrintGCApplicationStoppedTime"
+#JAVA_OPTS="$JAVA_OPTS -XX:+PrintPromotionFailure"
 #JAVA_OPTS="$JAVA_OPTS -XX:PrintFLSStatistics=1"
-JAVA_OPTS="$JAVA_OPTS -XX:+UseGCLogFileRotation"
-JAVA_OPTS="$JAVA_OPTS -XX:NumberOfGCLogFiles=10"
-JAVA_OPTS="$JAVA_OPTS -XX:GCLogFileSize=10M"
+#JAVA_OPTS="$JAVA_OPTS -XX:+UseGCLogFileRotation"
+#JAVA_OPTS="$JAVA_OPTS -XX:NumberOfGCLogFiles=10"
+#JAVA_OPTS="$JAVA_OPTS -XX:GCLogFileSize=10M"
 
-#JAVA_OPTS="$JAVA_OPTS -Xmx128M"
-#JAVA_OPTS="$JAVA_OPTS -Xms128M"
+#如果JDK版本是9及以上，请打开这个配置
+#JAVA_OPTS="$JAVA_OPTS --add-modules java.se --add-exports java.base/jdk.internal.ref=ALL-UNNAMED --add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED --add-opens java.base/sun.nio.ch=ALL-UNNAMED --add-opens java.management/sun.management=ALL-UNNAMED --add-opens jdk.management/com.sun.management.internal=ALL-UNNAMED"
+
+echo "警告：没有设置JVM内存参数！"
+echo "请设置JVM参数Xmx和Xms，设置为您为IM服务预留的内存大小，注意需要刨除操作系统占用，如果有其它系统也需要相应去除占用，还需要减去堆外内存占用。"
+echo "建议设置为总内存的60%以下，比如16G总内存，Xmx可以设置为9G"
+echo ""
+#JAVA_OPTS="$JAVA_OPTS -Xmx2G"
+#JAVA_OPTS="$JAVA_OPTS -Xms2G"
 
 
-$JAVA -server $JAVA_OPTS $JAVA_OPTS_SCRIPT -Dlog4j.configuration="file:$LOG_FILE" -Dcom.mchange.v2.c3p0.cfg.xml="$C3P0_CONF_FILE" -Dhazelcast.configuration="file:$HZ_CONF_FILE" -Dwildfirechat.path="$WILDFIRECHAT_PATH" -cp "$WILDFIRECHAT_HOME/lib/*" cn.wildfirechat.server.Server
+$JAVA -server $JAVA_OPTS $JAVA_OPTS_SCRIPT -Dfile.encoding=UTF-8 -Dsun.jnu.encoding=UTF-8 -Dlog4j.configurationFile="file:$LOG_FILE" -Dlog4j2.formatMsgNoLookups=true -Dcom.mchange.v2.c3p0.cfg.xml="$C3P0_CONF_FILE" -Dhazelcast.configuration=$HZ_CONF_FILE -Dwildfirechat.path="$WILDFIRECHAT_CONFIG_PATH" -cp "$WILDFIRECHAT_HOME/lib/*" cn.wildfirechat.server.Server

@@ -3,7 +3,7 @@
     <modelVersion>4.0.0</modelVersion>
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <netty.version>4.1.12.Final</netty.version>
+        <netty.version>4.1.68.Final</netty.version>
         <source.version>1.8</source.version>
         <target.version>1.8</target.version>
     </properties>
@@ -12,7 +12,7 @@
     <artifactId>wildfirechat-parent</artifactId>
 
     <packaging>pom</packaging>
-    <version>0.21</version>
+    <version>1.4.9</version>
     <name>Wildfire Chat</name>
     <description>Wildfire Chat Server</description>
     <inceptionYear>2019</inceptionYear>
@@ -30,11 +30,8 @@
     </licenses>
 
 
-
     <modules>
         <module>broker</module>
-        <module>wildfire_jmeter</module>
-        <module>client</module>
         <module>common</module>
         <module>sdk</module>
         <module>distribution</module>
@@ -46,6 +43,7 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.11.0</version>
                 <configuration>
                     <source>${source.version}</source>
                     <target>${target.version}</target>
@@ -78,6 +76,17 @@
     </build>
 
     <profiles>
+        <profile>
+            <!-- JDK9及以上编译时使用release 8，避免链接到高版本JDK的API（如ByteBuffer.rewind的协变覆写），
+                 保证产物能在Java 8上运行；JDK 8本身不支持release参数，走source/target即可 -->
+            <id>jdk8-release</id>
+            <activation>
+                <jdk>[9,)</jdk>
+            </activation>
+            <properties>
+                <maven.compiler.release>8</maven.compiler.release>
+            </properties>
+        </profile>
         <profile>
             <id>release-sign-artifacts</id>
             <build>

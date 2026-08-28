@@ -2,113 +2,123 @@ package cn.wildfirechat.sdk.utilities;
 
 import cn.wildfirechat.sdk.model.IMResult;
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import ikidou.reflect.TypeBuilder;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.http.HttpResponse;
 import org.apache.http.HttpStatus;
 import org.apache.http.client.HttpClient;
+import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.entity.StringEntity;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.DefaultHttpRequestRetryHandler;
 import org.apache.http.impl.client.HttpClientBuilder;
+import org.apache.http.impl.client.HttpClients;
+import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.BufferedReader;
+import java.io.Closeable;
+import java.io.IOException;
 import java.io.InputStreamReader;
 import java.lang.reflect.Type;
+import java.net.MalformedURLException;
+import java.net.URL;
 import java.nio.charset.Charset;
+import java.util.concurrent.TimeUnit;
 
 
-public class ChannelHttpUtils {
+/**
+ * 频道HTTP工具类
+ * <p>
+ * 提供频道API调用的HTTP工具方法，包括初始化、请求签名、HTTP请求等。
+ * 继承自HttpUtils并实现Closeable接口，专门用于频道接口的调用。
+ * </p>
+ */
+public class ChannelHttpUtils extends HttpUtils implements Closeable {
     private static final Logger LOG = LoggerFactory.getLogger(ChannelHttpUtils.class);
 
-    private static String url;
-    private static String channelId;
-    private static String channelSecret;
+    private String imurl;
+    private String channelId;
+    private String channelSecret;
+    private final CloseableHttpClient httpClient;
 
-    public static void init(String url, String channelId, String secret) {
-        ChannelHttpUtils.url = url;
-        ChannelHttpUtils.channelId = channelId;
-        ChannelHttpUtils.channelSecret = secret;
+    private final int port;
+
+    private void checkPort() {
+        if (port != 80 && port != 443 && port != -1) {
+            if (port == 18080) {
+                LOG.warn("您传入的频道API地址中的端口是18080，18080端口默认为管理API端口，频道API端口应该为IM服务的HTTP端口，默认为80，请确认是否使用错误！");
+            } else {
+                LOG.warn("您传入的频道API地址中的端口不是80/443，频道API的端口和客户端使用端口一样，都应该为IM服务的HTTP端口，默认为80，请确实是否正确？如果您定制化了IM服务端口或者使用其他端口反向代理IM服务的HTTP端口请忽略此提示。");
+            }
+        }
     }
 
-    public static <T> IMResult<T> httpJsonPost(String path, Object object, Class<T> clazz) throws Exception{
-        if (isNullOrEmpty(url) || isNullOrEmpty(path)) {
-            LOG.error("Not init IM SDK correctly. Do you forget init it?");
-            throw new Exception("SDK url or secret lack!");
-        }
-
-        String url = ChannelHttpUtils.url + path;
-        HttpPost post = null;
+    public ChannelHttpUtils(String imurl, String channelId, String secret) {
+        this.imurl = imurl.trim();
+        this.channelId = channelId.trim();
+        this.channelSecret = secret.trim();
         try {
-            HttpClient httpClient = HttpClientBuilder.create().build();
+            URL u = new URL(this.imurl);
+            int port = u.getPort();
+            if(port == -1) {
+                port = u.getDefaultPort();
+            }
+            this.port = port;
+        } catch (MalformedURLException e) {
+            throw new RuntimeException(e);
+        }
+        checkPort();
+        PoolingHttpClientConnectionManager cm = new PoolingHttpClientConnectionManager();
+        cm.setValidateAfterInactivity(1000);
+        int connectTimeout = 5000; // 连接超时时间
+        int socketTimeout = 15000; // 请求超时时间
+        int connectionRequestTimeout = 3000; // 从连接池获取连接的超时时间
+        RequestConfig requestConfig = RequestConfig.custom()
+            .setConnectTimeout(connectTimeout)
+            .setSocketTimeout(socketTimeout)
+            .setConnectionRequestTimeout(connectionRequestTimeout)
+            .build();
+        httpClient = HttpClients.custom()
+            .setDefaultRequestConfig(requestConfig)
+            .setConnectionManager(cm)
+            .evictExpiredConnections()
+            .evictIdleConnections(60L, TimeUnit.SECONDS)
+            .setRetryHandler(DefaultHttpRequestRetryHandler.INSTANCE)
+            .setMaxConnTotal(100)
+            .setMaxConnPerRoute(50)
+            .build();
+    }
 
+    public <T> IMResult<T> httpJsonPost(String path, Object object, Class<T> clazz) throws Exception{
+        return httpJsonPost(imurl, channelId, httpClient, path, object, clazz, post -> {
             int nonce = (int)(Math.random() * 100000 + 3);
             long timestamp = System.currentTimeMillis();
             String str = nonce + "|" + channelSecret + "|" + timestamp;
             String sign = DigestUtils.sha1Hex(str);
 
-
-            post = new HttpPost(url);
             post.setHeader("Content-type", "application/json; charset=utf-8");
             post.setHeader("Connection", "Keep-Alive");
             post.setHeader("nonce", nonce + "");
             post.setHeader("timestamp", "" + timestamp);
+            post.setHeader("cid", channelId);
             post.setHeader("sign", sign);
-
-            String jsonStr = null;
-            if (object != null) {
-                jsonStr = new Gson().toJson(object);
-            }
-            LOG.info("http request content: {}", jsonStr);
-
-            StringEntity entity = new StringEntity(jsonStr, Charset.forName("UTF-8"));
-            entity.setContentEncoding("UTF-8");
-            entity.setContentType("application/json");
-            post.setEntity(entity);
-            HttpResponse response = httpClient.execute(post);
-
-            int statusCode = response.getStatusLine().getStatusCode();
-            if(statusCode != HttpStatus.SC_OK){
-                LOG.info("Request error: "+statusCode);
-                throw new Exception("Http request error with code:" + statusCode);
-            }else{
-                BufferedReader in = new BufferedReader(new InputStreamReader(response.getEntity()
-                    .getContent(),"utf-8"));
-                StringBuffer sb = new StringBuffer();
-                String line;
-                String NL = System.getProperty("line.separator");
-                while ((line = in.readLine()) != null) {
-                    sb.append(line + NL);
-                }
-
-                in.close();
-
-                String content = sb.toString();
-                LOG.info("http request response content: {}", content);
-
-                return fromJsonObject(content, clazz);
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-            throw e;
-        }finally{
-            if(post != null){
-                post.releaseConnection();
-            }
-        }
+        });
     }
 
-    private static <T> IMResult<T> fromJsonObject(String content, Class<T> clazz) {
-        Type type = TypeBuilder
-                .newInstance(IMResult.class)
-                .addTypeParam(clazz)
-                .build();
-        return new Gson().fromJson(content, type);
+    public String getChannelId() {
+        return channelId;
     }
 
-    private static boolean isNullOrEmpty(String str) {
-        return str == null || str.isEmpty();
+    public String getChannelSecret() {
+        return channelSecret;
     }
 
+    @Override
+    public void close() throws IOException {
+        httpClient.close();
+    }
 }

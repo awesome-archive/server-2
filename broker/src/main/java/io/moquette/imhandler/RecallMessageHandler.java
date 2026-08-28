@@ -8,6 +8,7 @@
 
 package io.moquette.imhandler;
 
+import cn.wildfirechat.proto.ProtoConstants;
 import cn.wildfirechat.proto.WFCMessage;
 import io.moquette.spi.impl.Qos1PublishHandler;
 import io.netty.buffer.ByteBuf;
@@ -20,21 +21,20 @@ import java.util.Set;
 @Handler(value = IMTopic.RecallMessageTopic)
 public class RecallMessageHandler extends IMHandler<WFCMessage.INT64Buf> {
     @Override
-    public ErrorCode action(ByteBuf ackPayload, String clientID, String fromUser, boolean isAdmin, WFCMessage.INT64Buf int64Buf, Qos1PublishHandler.IMCallback callback) {
-        ErrorCode errorCode = m_messagesStore.recallMessage(int64Buf.getId(), fromUser);
+    public ErrorCode action(ByteBuf ackPayload, String clientID, String fromUser, ProtoConstants.RequestSourceType requestSourceType, WFCMessage.INT64Buf int64Buf, Qos1PublishHandler.IMCallback callback) {
+        boolean isAdmin = requestSourceType == ProtoConstants.RequestSourceType.Request_From_Admin;
+        ErrorCode errorCode = m_messagesStore.recallMessage(int64Buf.getId(), fromUser, clientID, isAdmin, ackPayload);
 
         if(errorCode != ErrorCode.ERROR_CODE_SUCCESS) {
             return errorCode;
         }
 
-        Set<String> notifyReceivers = new LinkedHashSet<>();
         WFCMessage.Message message = m_messagesStore.getMessage(int64Buf.getId());
         if (message == null) {
             return ErrorCode.ERROR_CODE_NOT_EXIST;
         }
 
-        m_messagesStore.getNotifyReceivers(fromUser, message, notifyReceivers);
-        this.publisher.publishRecall2Receivers(int64Buf.getId(), fromUser, notifyReceivers, clientID);
+        publish(message.getFromUser(), clientID, message, requestSourceType);
 
         return errorCode;
     }

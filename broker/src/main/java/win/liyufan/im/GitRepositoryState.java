@@ -8,9 +8,11 @@
 
 package win.liyufan.im;
 
-import java.io.FileInputStream;
-import java.io.IOException;
+import io.moquette.server.Server;
+
+import java.io.*;
 import java.util.Properties;
+import java.util.UUID;
 
 public class GitRepositoryState {
     public final String tags;
@@ -27,6 +29,8 @@ public class GitRepositoryState {
     public final String commitMessageFull;
     public final String commitMessageShort;
     public final String commitTime;
+    public static final String globalLabel = UUID.randomUUID().toString();
+    public String label;
     public final String closestTagName;
     public final String closestTagCommitCount;
 
@@ -35,6 +39,8 @@ public class GitRepositoryState {
     public final String buildTime;
     public final String buildHost;
     public final String buildVersion;
+    public final long runTime;
+
 
     private GitRepositoryState(Properties properties) {
         this.tags = String.valueOf(properties.get("git.tags"));
@@ -59,12 +65,18 @@ public class GitRepositoryState {
         this.buildTime = String.valueOf(properties.get("git.build.time"));
         this.buildHost = String.valueOf(properties.get("git.build.host"));
         this.buildVersion = String.valueOf(properties.get("git.build.version"));
+        this.runTime = Server.getServer().getRunTime();
+        this.label = globalLabel;
     }
 
     public static GitRepositoryState getGitRepositoryState() throws IOException {
         Properties properties = new Properties();
         try {
-            properties.load(new FileInputStream("config/git.properties"));
+            String configPath = System.getProperty("wildfirechat.path", null);
+            File f = new File(configPath, "config/git.properties");
+            InputStream inputStream = new FileInputStream(f);
+            BufferedReader bf = new BufferedReader(new InputStreamReader(inputStream));
+            properties.load(bf);
         } catch (IOException e) {
             
         }

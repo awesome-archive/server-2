@@ -43,19 +43,47 @@ public class GetUserAction extends RobotAction {
                     user = messagesStore.getUserInfoByMobile(inputUserId.getMobile());
                 }
 
-                response.setStatus(HttpResponseStatus.OK);
                 RestResult result;
-                if (user == null) {
+                if (user == null || user.getDeleted() > 0) {
                     result = RestResult.resultOf(ErrorCode.ERROR_CODE_NOT_EXIST);
                 } else {
-                    result = RestResult.ok(InputOutputUserInfo.fromPbUser(user));
+                    InputOutputUserInfo outputUserInfo = InputOutputUserInfo.fromPbUser(user);
+                    int mask = messagesStore.getRobotGetUserInfoMask();
+                    if((mask & 1) == 0) {
+                        outputUserInfo.setName(null);
+                    }
+                    if((mask & 2) == 0) {
+                        outputUserInfo.setMobile(null);
+                    }
+                    if((mask & 4) == 0) {
+                        outputUserInfo.setEmail(null);
+                    }
+                    if((mask & 8) == 0) {
+                        outputUserInfo.setAddress(null);
+                    }
+                    if((mask & 16) == 0) {
+                        outputUserInfo.setCompany(null);
+                    }
+                    if((mask & 32) == 0) {
+                        outputUserInfo.setExtra(null);
+                    }
+                    if((mask & 64) == 0) {
+                        outputUserInfo.setUpdateDt(0);
+                    }
+                    if((mask & 128) == 0) {
+                        outputUserInfo.setGender(0);
+                    }
+                    if((mask & 256) == 0) {
+                        outputUserInfo.setSocial(null);
+                    }
+                    if((mask & 512) == 0) {
+                        outputUserInfo.setType(0);
+                    }
+                    result = RestResult.ok(outputUserInfo);
                 }
-
-                response.setContent(new Gson().toJson(result));
+                setResponseContent(result, response);
             } else {
-                response.setStatus(HttpResponseStatus.OK);
-                RestResult result = RestResult.resultOf(ErrorCode.INVALID_PARAMETER);
-                response.setContent(new Gson().toJson(result));
+                setResponseContent(RestResult.resultOf(ErrorCode.INVALID_PARAMETER), response);
             }
 
         }

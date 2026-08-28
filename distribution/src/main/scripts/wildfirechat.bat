@@ -1,12 +1,11 @@
 @ECHO OFF
 
 set "CURRENT_DIR=%cd%"
-if not "%WILDFIRECHAT_HOME%" == "" goto gotHome
 set "WILDFIRECHAT_HOME=%CURRENT_DIR%"
 if exist "%WILDFIRECHAT_HOME%\bin\wildfirechat.bat" goto okHome
 cd ..
 set "WILDFIRECHAT_HOME=%cd%"
-cd "%CURRENT_DIR%"
+set "CURRENT_DIR=%cd%"
 :gotHome
 if exist "%WILDFIRECHAT_HOME%\bin\wildfirechat.bat" goto okHome
     echo The WILDFIRECHAT_HOME environment variable is not defined correctly
@@ -15,11 +14,11 @@ goto end
 :okHome
 
 rem Set JavaHome if it exists
-if exist { "%JAVA_HOME%\bin\java" } (
+if exist [ "%JAVA_HOME%\bin\java" ]  (
     set "JAVA="%JAVA_HOME%\bin\java""
-) else {
+) else (
     set "JAVA="java""
-}
+)
 
 echo Using JAVA_HOME:       "%JAVA_HOME%"
 echo Using WILDFIRECHAT_HOME:   "%WILDFIRECHAT_HOME%"
@@ -29,7 +28,9 @@ rem  set LOG_FILE_LEVEL=fine
 set JAVA_OPTS=
 set JAVA_OPTS_SCRIPT=-XX:+HeapDumpOnOutOfMemoryError -Djava.awt.headless=true
 set WILDFIRECHAT_PATH=%WILDFIRECHAT_HOME%
-set LOG_FILE=%WILDFIRECHAT_HOME%\config\log4j.properties
+set LOG_FILE=%WILDFIRECHAT_HOME%\config\log4j2.xml
+set HZ_CONF_FILE=%WILDFIRECHAT_HOME%\config\hazelcast.xml
+set C3P0_CONF_FILE=%WILDFIRECHAT_HOME%\config\c3p0-config.xml
 
 rem Use the Hotspot garbage-first collector.
 set JAVA_OPTS=%JAVA_OPTS%  -XX:+UseG1GC
@@ -71,4 +72,14 @@ rem set JAVA_OPTS=%JAVA_OPTS% -XX:+UseGCLogFileRotation
 rem set JAVA_OPTS=%JAVA_OPTS% -XX:NumberOfGCLogFiles=10
 rem set JAVA_OPTS=%JAVA_OPTS% -XX:GCLogFileSize=10M"
 
-%JAVA% -server %JAVA_OPTS% %JAVA_OPTS_SCRIPT% -Dlog4j.configuration=file:%LOG_FILE% -Dwildfirechat.path=%WILDFIRECHAT_PATH% -cp %WILDFIRECHAT_HOME%\lib\* cn.wildfirechat.server.Server
+rem If the JDK version is 9 or above, please open this configuration.
+rem set JAVA_OPTS=%JAVA_OPTS% --add-modules java.se --add-exports java.base/jdk.internal.ref=ALL-UNNAMED --add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED --add-opens java.base/sun.nio.ch=ALL-UNNAMED --add-opens java.management/sun.management=ALL-UNNAMED --add-opens jdk.management/com.sun.management.internal=ALL-UNNAMED
+
+echo "Please set Xmx and Xms parameters!"
+echo "Please set Xmx and Xms parameters!"
+echo "Please set Xmx and Xms parameters!"
+
+rem set JAVA_OPTS=%JAVA_OPTS% -Xmx2G
+rem set JAVA_OPTS=%JAVA_OPTS% -Xms2G
+
+%JAVA% -server %JAVA_OPTS% %JAVA_OPTS_SCRIPT% -Dlog4j.configurationFile=%LOG_FILE% -Dcom.mchange.v2.c3p0.cfg.xml=%C3P0_CONF_FILE% -Dhazelcast.configuration=%HZ_CONF_FILE% -Dwildfirechat.path=%WILDFIRECHAT_PATH% -cp %WILDFIRECHAT_HOME%\lib\* cn.wildfirechat.server.Server

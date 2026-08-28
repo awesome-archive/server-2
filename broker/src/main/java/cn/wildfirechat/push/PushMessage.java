@@ -12,9 +12,12 @@ package cn.wildfirechat.push;
 public class PushMessage {
     public String sender;
     public String senderName;
+    public String senderPortrait;
     public int convType;
     public String target;
     public String targetName;
+    public String targetPortrait;
+    public String userId;
     public int line;
     public int cntType;
     public long serverTime;
@@ -23,6 +26,7 @@ public class PushMessage {
     //推送类型，android推送分为小米/华为/魅族等。ios分别为开发和发布。
     public int pushType;
     public String pushContent;
+    public String pushData;
     public int unReceivedMsg;
     public int mentionedType;
     public String packageName;
@@ -30,20 +34,49 @@ public class PushMessage {
     public String voipDeviceToken;
     public boolean isHiddenDetail;
     public String language;
+    public boolean republish;
+    public long messageId;
+    public long callStartUid;
+    public int existBadgeNumber;
 
-    public PushMessage(String sender, int conversationType, String target, int line, int messageContentType, long serverTime, String senderName, String targetName, int unReceivedMsg, int mentionedType, boolean isHiddenDetail, String language) {
+    public PushMessage(String sender, int conversationType, String target, int line, int messageContentType, long serverTime, String senderName, String senderPortrait, String targetName, String targetPortrait, int unReceivedMsg, int mentionedType, boolean isHiddenDetail, String language) {
         this.sender = sender;
         this.convType = conversationType;
         this.target = target;
         this.senderName = senderName;
+        this.senderPortrait = senderPortrait;
         this.targetName = targetName;
+        this.targetPortrait = targetPortrait;
         this.line = line;
         this.cntType = messageContentType;
         this.serverTime = serverTime;
         this.unReceivedMsg = unReceivedMsg;
-        this.pushMessageType = (cntType == 400 ? PushServer.PushMessageType.PUSH_MESSAGE_TYPE_VOIP_INVITE : (cntType == 402 ? PushServer.PushMessageType.PUSH_MESSAGE_TYPE_VOIP_BYE : PushServer.PushMessageType.PUSH_MESSAGE_TYPE_NORMAL));
+        if (cntType == 400 || cntType == 406) {
+            this.pushMessageType = PushServer.PushMessageType.PUSH_MESSAGE_TYPE_VOIP_INVITE;
+        } else if(cntType == 402) {
+            this.pushMessageType = PushServer.PushMessageType.PUSH_MESSAGE_TYPE_VOIP_BYE;
+        } else if(cntType == 401) {
+            this.pushMessageType = PushServer.PushMessageType.PUSH_MESSAGE_TYPE_VOIP_ANSWER;
+        } else if(cntType == 80) {
+            this.pushMessageType = PushServer.PushMessageType.PUSH_MESSAGE_TYPE_RECALLED;
+        } else if(cntType == 81) {
+            this.pushMessageType = PushServer.PushMessageType.PUSH_MESSAGE_TYPE_DELETED;
+        } else {
+            this.pushMessageType = PushServer.PushMessageType.PUSH_MESSAGE_TYPE_NORMAL;
+        }
+
         this.mentionedType = mentionedType;
         this.isHiddenDetail = isHiddenDetail;
+        this.language = language;
+        this.republish = messageContentType == 80 || messageContentType == 81;
+    }
+    public PushMessage(String sender, String target, long serverTime, String senderName, int unReceivedMsg, String language, int pushMessageType) {
+        this.sender = sender;
+        this.target = target;
+        this.senderName = senderName;
+        this.serverTime = serverTime;
+        this.unReceivedMsg = unReceivedMsg;
+        this.pushMessageType = pushMessageType;
         this.language = language;
     }
 }

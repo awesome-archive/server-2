@@ -39,7 +39,7 @@ public class CreateChatroomAction extends AdminAction {
             FullHttpRequest fullHttpRequest = (FullHttpRequest)request.getNettyRequest();
             byte[] bytes = Utils.readBytesAndRewind(fullHttpRequest.content());
             String content = new String(bytes);
-            Gson gson = new Gson();
+            
             InputCreateChatroom inputCreateChatroom = gson.fromJson(content, InputCreateChatroom.class);
             if (inputCreateChatroom != null
                 && !StringUtil.isNullOrEmpty(inputCreateChatroom.getTitle())) {
@@ -48,22 +48,11 @@ public class CreateChatroomAction extends AdminAction {
                     inputCreateChatroom.setChatroomId(messagesStore.getShortUUID());
                 }
 
-                if (inputCreateChatroom.getPortrait() == null || inputCreateChatroom.getPortrait().length() == 0) {
-                    inputCreateChatroom.setPortrait("https://avatars.io/gravatar/" + inputCreateChatroom.getChatroomId());
-                }
-
                 WFCMessage.ChatroomInfo info = inputCreateChatroom.toChatroomInfo();
-
                 messagesStore.createChatroom(inputCreateChatroom.getChatroomId(), info);
-
-                response.setStatus(HttpResponseStatus.OK);
-                RestResult result = RestResult.ok(new OutputCreateChatroom(inputCreateChatroom.getChatroomId()));
-                response.setContent(new Gson().toJson(result));
-
+                setResponseContent(RestResult.ok(new OutputCreateChatroom(inputCreateChatroom.getChatroomId())), response);
             } else {
-                response.setStatus(HttpResponseStatus.OK);
-                RestResult result = RestResult.resultOf(ErrorCode.INVALID_PARAMETER);
-                response.setContent(new Gson().toJson(result));
+                setResponseContent(RestResult.resultOf(ErrorCode.INVALID_PARAMETER), response);
             }
 
         }

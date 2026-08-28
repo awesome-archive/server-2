@@ -42,27 +42,15 @@ public class GetGroupInfoAction extends AdminAction {
                 && (!StringUtil.isNullOrEmpty(inputGetGroup.getGroupId()))) {
 
                 WFCMessage.GroupInfo groupInfo = messagesStore.getGroupInfo(inputGetGroup.getGroupId());
-
-                response.setStatus(HttpResponseStatus.OK);
                 RestResult result;
                 if (groupInfo == null) {
                     result = RestResult.resultOf(ErrorCode.ERROR_CODE_NOT_EXIST);
                 } else {
-                    PojoGroupInfo pojoGroupInfo = new PojoGroupInfo();
-                    pojoGroupInfo.setExtra(groupInfo.getExtra());
-                    pojoGroupInfo.setName(groupInfo.getName());
-                    pojoGroupInfo.setOwner(groupInfo.getOwner());
-                    pojoGroupInfo.setPortrait(groupInfo.getPortrait());
-                    pojoGroupInfo.setTarget_id(groupInfo.getTargetId());
-                    pojoGroupInfo.setType(groupInfo.getType());
-                    result = RestResult.ok(pojoGroupInfo);
+                    result = RestResult.ok(PojoGroupInfo.fromProto(groupInfo));
                 }
-
-                response.setContent(new Gson().toJson(result));
+                setResponseContent(result, response);
             } else {
-                response.setStatus(HttpResponseStatus.OK);
-                RestResult result = RestResult.resultOf(ErrorCode.INVALID_PARAMETER);
-                response.setContent(new Gson().toJson(result));
+                setResponseContent(RestResult.resultOf(ErrorCode.INVALID_PARAMETER), response);
             }
 
         }

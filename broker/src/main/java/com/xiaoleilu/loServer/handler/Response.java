@@ -13,14 +13,12 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.TimeZone;
 
-import com.xiaoleilu.hutool.http.HttpUtil;
-import com.xiaoleilu.hutool.log.Log;
-import com.xiaoleilu.hutool.log.StaticLog;
-import com.xiaoleilu.hutool.util.CharsetUtil;
-import com.xiaoleilu.hutool.util.DateUtil;
-import com.xiaoleilu.hutool.util.StrUtil;
+import cn.hutool.core.date.DateUtil;
+import cn.hutool.core.util.CharsetUtil;
+import cn.hutool.core.util.StrUtil;
 import com.xiaoleilu.loServer.ServerSetting;
 import com.xiaoleilu.loServer.listener.FileProgressiveFutureListener;
+import cn.wildfirechat.oplog.OpLogRecorder;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
@@ -41,7 +39,10 @@ import io.netty.handler.codec.http.LastHttpContent;
 import io.netty.handler.codec.http.cookie.Cookie;
 import io.netty.handler.codec.http.cookie.DefaultCookie;
 import io.netty.handler.codec.http.cookie.ServerCookieEncoder;
+import org.apache.tika.Tika;
 import org.slf4j.LoggerFactory;
+
+import static cn.hutool.core.date.DatePattern.HTTP_DATETIME_PATTERN;
 
 /**
  * 响应对象
@@ -331,7 +332,7 @@ public class Response {
 	 * @param httpCacheSeconds 缓存时间，单位秒
 	 */
 	public void setDateAndCache(long lastModify, int httpCacheSeconds) {
-		SimpleDateFormat formatter = new SimpleDateFormat(DateUtil.HTTP_DATETIME_PATTERN, Locale.US);
+		SimpleDateFormat formatter = new SimpleDateFormat(HTTP_DATETIME_PATTERN, Locale.US);
 		formatter.setTimeZone(TimeZone.getTimeZone("GMT"));
 
 		// Date header
@@ -357,8 +358,8 @@ public class Response {
 		final DefaultHttpResponse defaultHttpResponse = new DefaultHttpResponse(httpVersion, status);
 
 		// headers
-		final HttpHeaders httpHeaders = defaultHttpResponse.headers().add(headers);
-
+		HttpHeaders httpHeaders = defaultHttpResponse.headers().add(headers);
+        httpHeaders.set(HttpHeaderNames.CONTENT_TYPE.toString(), contentType);
 		// Cookies
 		for (Cookie cookie : cookies) {
 			httpHeaders.add(HttpHeaderNames.SET_COOKIE.toString(), ServerCookieEncoder.LAX.encode(cookie));
@@ -405,6 +406,9 @@ public class Response {
 	 * @throws IOException 
 	 */
 	public ChannelFuture send() {
+		//操作日志：admin/robot/channel的写操作在此统一记录（此时结果已知）
+		OpLogRecorder.recordHttp(request, content);
+
 		ChannelFuture channelFuture;
 		if(content instanceof File){
 			//文件
@@ -469,7 +473,9 @@ public class Response {
 		this.setContentLength(fileLength);
 		
 		//文件类型
-		String contentType = HttpUtil.getMimeType(file.getName());
+        Tika tika = new Tika();
+        String contentType = tika.detect(file);
+//		String contentType = HttpUtil.getMimeType(file.getName());
 		if(StrUtil.isBlank(contentType)){
 			//无法识别默认使用数据流
 			contentType = "application/octet-stream";

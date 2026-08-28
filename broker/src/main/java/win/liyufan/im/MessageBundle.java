@@ -64,7 +64,16 @@ public class MessageBundle implements Serializable {
 		return message;
 	}
 
+    public void setFromClientId(String fromClientId) {
+        this.fromClientId = fromClientId;
+    }
+
     public void setMessage(WFCMessage.Message message) {
+        this.fromUser = message.getFromUser();
+        this.type = message.getConversation().getType();
+        this.targetId = message.getConversation().getTarget();
+        this.line = message.getConversation().getLine();
         this.message = message;
+        this.messageId = message.getMessageId();
     }
 }

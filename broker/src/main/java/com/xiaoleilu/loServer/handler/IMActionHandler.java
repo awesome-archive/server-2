@@ -8,7 +8,6 @@
 
 package com.xiaoleilu.loServer.handler;
 
-import com.xiaoleilu.hutool.lang.Singleton;
 import com.xiaoleilu.loServer.ServerSetting;
 import com.xiaoleilu.loServer.action.Action;
 import com.xiaoleilu.loServer.action.FileAction;
@@ -20,6 +19,7 @@ import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.handler.codec.http.FullHttpRequest;
+import io.netty.util.internal.StringUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -37,7 +37,7 @@ public class IMActionHandler extends ActionHandler {
 
     @Override
     boolean isValidePath(String path) {
-        if (!path.startsWith("/admin")) {
+        if (!StringUtil.isNullOrEmpty(path) && !path.startsWith("/admin")) {
             return true;
         }
         return false;
